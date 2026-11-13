@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NBA line board</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏀</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #EEF2F5;
+  --surface: #FFFFFF;
+  --ink: #1B2533;
+  --steel: #5B6B7F;
+  --rule: #CDD5DE;
+  --track: #DCE3EA;
+  --zone: #1F8A5B;
+  --zone-wash: #DDF1E6;
+  --warn: #A86A00;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #121A24; --surface: #18222F; --ink: #E6ECF2; --steel: #8C9AAB;
+    --rule: #2A3646; --track: #253141; --zone: #3DBE84; --zone-wash: #17372A; --warn: #E0A93A;
+  }
+}
+*, *::before, *::after { box-sizing: inherit; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--body); }
+main { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
+h1 { font: 700 2.6rem/1 var(--display); margin: 0 0 6px; letter-spacing: .01em; }
+.status { color: var(--steel); margin: 0; font-size: .95rem; }
+.status strong { color: var(--ink); font-weight: 500; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 20px 0 8px; }
+fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 14px; }
+legend { font-weight: 600; font-size: .9rem; padding: 0; margin-bottom: 4px; }
+label { display: grid; gap: 2px; font-size: .85rem; color: var(--steel); }
+input[type=number] { width: 88px; padding: 6px 8px; font: 500 1rem var(--body); color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
+button { font: 600 .95rem var(--body); padding: 9px 16px; border-radius: 6px; cursor: pointer;
+  background: var(--ink); color: var(--bg); border: 0; }
+button:disabled { opacity: .55; cursor: progress; }
+:focus-visible { outline: 3px solid var(--zone); outline-offset: 2px; }
+.note { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--warn); background: var(--surface); font-size: .92rem; }
+.empty { margin: 32px 0; padding: 20px; background: var(--surface); border-radius: 8px; }
+.empty p { margin: 0 0 6px; }
+h2 { font: 600 1.35rem/1.2 var(--display); margin: 36px 0 4px; color: var(--steel); }
+.game { background: var(--surface); border-radius: 8px; padding: 14px 16px 10px; margin-top: 10px;
+  border-left: 4px solid transparent; }
+.game.hot { border-left-color: var(--zone); }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.teams { font: 700 1.7rem/1 var(--display); }
+.teams .at { font-weight: 600; color: var(--steel); font-size: 1.1rem; margin: 0 .3em; }
+.time { color: var(--steel); font-size: .92rem; white-space: nowrap; }
+.sub { color: var(--steel); font-size: .85rem; margin: 2px 0 6px; min-height: 1em; }
+.line { display: grid; grid-template-columns: 56px 1fr 1fr 1.1fr; gap: 2px 12px; align-items: baseline;
+  padding: 8px 0; border-top: 1px solid var(--rule); }
+.line .kind { font-weight: 600; font-size: .9rem; }
+.num { font: 600 1.25rem/1.1 var(--display); }
+.small { display: block; color: var(--steel); font-size: .78rem; }
+.edge { justify-self: start; padding: 2px 8px; border-radius: 4px; }
+.edge.in { background: var(--zone-wash); color: var(--zone); }
+.track { grid-column: 2 / -1; position: relative; height: 10px; margin: 6px 0 2px; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 2px; background: var(--track); }
+.gap { position: absolute; top: 3px; height: 4px; background: var(--steel); border-radius: 2px; }
+.gap.in { background: var(--zone); }
+.tick { position: absolute; top: 0; width: 2px; height: 10px; background: var(--ink); }
+.dot { position: absolute; top: 0; width: 10px; height: 10px; margin-left: -4px; border-radius: 50%; background: var(--steel); }
+.dot.in { background: var(--zone); }
+.muted { color: var(--steel); }
+footer { margin-top: 40px; color: var(--steel); font-size: .88rem; }
+footer a { color: var(--ink); }
+@media (max-width: 520px) {
+  .line { grid-template-columns: 1fr 1fr; }
+  .line .kind { grid-column: 1 / -1; }
+  .track { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .game { animation: in .35s ease-out both; }
+  @keyframes in { from { opacity: 0; } }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>NBA line board</h1>
+  <p class="status" id="status">Loading the board…</p>
+
+  <div class="controls">
+    <fieldset>
+      <legend>Green Zone starts at</legend>
+      <label>Spread edge
+        <input type="number" id="spreadMin" step="0.5" min="0" value="2.5">
+      </label>
+      <label>Total edge
+        <input type="number" id="totalMin" step="0.5" min="0" value="4">
+      </label>
+    </fieldset>
+    <button id="capture" type="button">Capture odds now</button>
+  </div>
+  <div id="note"></div>
+  <div id="board"></div>
+
+  <footer>
+    <p>Lines are the median across US books. The bar shows the gap between the market (tick) and the model (dot).</p>
+    <p id="modelInfo"></p>
+    <p><a href="/api/export">Download line history (CSV)</a></p>
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let data = null;
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+$("spreadMin").value = store.get("spreadMin", "2.5");
+$("totalMin").value = store.get("totalMin", "4");
+for (const id of ["spreadMin", "totalMin"]) {
+  $(id).addEventListener("input", () => { store.set(id, $(id).value); render(); });
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (n, d = 1) => (n == null ? "–" : Number(n).toFixed(d).replace(/\.0$/, ""));
+const line = (n) => (n == null ? "–" : String(+Number(n).toFixed(2))); // keeps .25/.75 medians exact
+const ago = (iso) => {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} hr ago` : `${Math.round(h / 24)} days ago`;
+};
+const dayLabel = (iso) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+const timeLabel = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+// Spread shown from the favorite's side: home -5.5, or away -3 when home is +3.
+function spreadText(g, homeSpread, model = false) {
+  if (homeSpread == null) return "–";
+  if (homeSpread === 0) return "Pick";
+  const f = model ? fmt : line;
+  return homeSpread < 0 ? `${g.home_abbr} ${f(homeSpread)}` : `${g.away_abbr} -${f(Math.abs(homeSpread))}`;
+}
+
+function track(market, model, range, inZone) {
+  const pos = (x) => Math.max(0, Math.min(100, 50 + ((x - market) / range) * 50));
+  const p = pos(model);
+  const left = Math.min(50, p), width = Math.abs(p - 50);
+  const z = inZone ? " in" : "";
+  return `<div class="track" aria-hidden="true">
+    <span class="gap${z}" style="left:${left}%;width:${width}%"></span>
+    <span class="tick" style="left:calc(50% - 1px)"></span>
+    <span class="dot${z}" style="left:${p}%"></span></div>`;
+}
+
+function gameHTML(g) {
+  const started = Date.parse(g.commence_time) <= Date.now();
+  const sMin = Number($("spreadMin").value) || 0;
+  const tMin = Number($("totalMin").value) || 0;
+  const p = g.pred;
+  let spreadRow, totalRow, hot = false, sub = "";
+
+  const openS = `<span class="small">${g.open_spread != null && g.open_spread !== g.spread_home ? `Market, open ${spreadText(g, g.open_spread)}` : "Market"}</span>`;
+  const openT = `<span class="small">${g.open_total != null && g.open_total !== g.total ? `Market, open ${line(g.open_total)}` : "Market"}</span>`;
+
+  if (started) {
+    sub = "In progress. Live lines are hidden.";
+  } else if (p) {
+    const notes = [];
+    if (p.rest_home === 1) notes.push(`${g.home_abbr} on a back-to-back`);
+    if (p.rest_away === 1) notes.push(`${g.away_abbr} on a back-to-back`);
+    sub = notes.join(", ");
+  } else {
+    sub = "No model numbers for this matchup yet.";
+  }
+
+  if (!started && p && g.spread_home != null) {
+    const e = p.margin + g.spread_home; // > 0 leans home
+    const inZ = Math.abs(e) >= sMin;
+    hot ||= inZ;
+    const side = e > 0 ? g.home_abbr : g.away_abbr;
+    spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span>
+      <span class="num">${spreadText(g, -p.margin, true)}<span class="small">Model</span></span>
+      <span class="num edge${inZ ? " in" : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">Lean</span></span>
+      ${track(-g.spread_home, p.margin, 10, inZ)}`;
+  } else {
+    spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span><span class="muted">–</span><span class="muted">–</span>`;
+  }
+
+  if (!started && p && g.total != null) {
+    const e = p.total - g.total;
+    const inZ = Math.abs(e) >= tMin;
+    hot ||= inZ;
+    totalRow = `<span class="num">${line(g.total)}${openT}</span>
+      <span class="num">${fmt(p.total)}<span class="small">Model</span></span>
+      <span class="num edge${inZ ? " in" : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">Lean</span></span>
+      ${track(g.total, p.total, 12, inZ)}`;
+  } else {
+    totalRow = `<span class="num">${line(g.total)}${openT}</span><span class="muted">–</span><span class="muted">–</span>`;
+  }
+
+  return `<article class="game${hot ? " hot" : ""}">
+    <div class="head">
+      <div class="teams">${esc(g.away_abbr)}<span class="at">at</span>${esc(g.home_abbr)}</div>
+      <div class="time">${timeLabel(g.commence_time)}</div>
+    </div>
+    <div class="sub">${esc(sub)}</div>
+    <div class="line"><span class="kind">Spread</span>${spreadRow}</div>
+    <div class="line"><span class="kind">Total</span>${totalRow}</div>
+  </article>`;
+}
+
+function render() {
+  if (!data) return;
+  const games = [...data.games].sort((a, b) => Date.parse(a.commence_time) - Date.parse(b.commence_time));
+  if (!games.length) {
+    $("board").innerHTML = `<div class="empty"><p><strong>No NBA games on the board right now.</strong></p><p>Lines usually post the day before tip-off. Check back later or tap Capture odds now.</p></div>`;
+    return;
+  }
+  let html = "", day = "";
+  for (const g of games) {
+    const d = dayLabel(g.commence_time);
+    if (d !== day) { html += `<h2>${d}</h2>`; day = d; }
+    html += gameHTML(g);
+  }
+  if (!data.model) {
+    html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>Run model/nba_model_v1.py on your computer to add model numbers and edges. Market lines are below.</p></div>` + html;
+  }
+  $("board").innerHTML = html;
+}
+
+async function load(refresh = false) {
+  $("capture").disabled = true;
+  try {
+    const r = await fetch(`/api/board${refresh ? "?refresh=1" : ""}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+    data = j;
+    const left = j.remaining != null ? ` <strong>${esc(j.remaining)}</strong> Odds API requests left this month.` : "";
+    $("status").innerHTML = `Odds captured <strong>${ago(j.captured_at)}</strong>.${left}`;
+    $("note").innerHTML = j.note ? `<p class="note">${esc(j.note)}</p>` : "";
+    const m = j.model;
+    $("modelInfo").textContent = m
+      ? `Model uploaded ${ago(m.uploaded_at)}, with games through ${m.trained_through}.` +
+        (m.test?.margin ? ` On ${m.test.margin.season}, margin error was ${fmt(m.test.margin.mae)} points vs ${fmt(m.test.margin.baseline_mae)} for a no-skill guess.` : "")
+      : "";
+    render();
+  } catch (e) {
+    $("status").textContent = "The board couldn't load.";
+    $("note").innerHTML = `<p class="note">${esc(e.message)}</p>`;
+  } finally {
+    $("capture").disabled = false;
+  }
+}
+
+$("capture").addEventListener("click", () => load(true));
+load();
+</script>
+</body>
+</html>
