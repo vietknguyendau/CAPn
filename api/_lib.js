@@ -145,6 +145,8 @@ export async function captureOdds(sport, model, inj = null) {
   const events = await r.json();
   const remaining = r.headers.get("x-requests-remaining");
   const t = new Date().toISOString();
+  // Requests left are shared by every sport on the account, so keep one copy for the whole site.
+  if (remaining != null) await setJSON("quota", { remaining, used: r.headers.get("x-requests-used"), t });
   const games = events.map((e) => summarize(e, sport));
 
   await setJSON(k(sport, "odds:latest"), { captured_at: t, remaining, games });

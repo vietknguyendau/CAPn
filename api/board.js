@@ -1,7 +1,9 @@
 import { getJSON, captureOdds, predict, pipeline, getInjuries, teamInjuries, sportFrom, k } from "./_lib.js";
 
-// GET /api/board?sport=nba|nfl            -> odds + model + injuries (auto-captures if odds are stale)
-// GET /api/board?sport=nfl&refresh=1      -> capture now, if the last capture is over 10 minutes old
+// GET /api/board?sport=nba|nfl         -> saved odds + model + injuries. Never spends Odds API requests.
+// GET /api/board?sport=nba&refresh=1   -> capture fresh odds (2 requests), at most once every 10 minutes.
+// Fresh odds otherwise come only from the scheduled captures in vercel.json.
+// To bring back automatic captures on page load, set STALE_MINUTES (e.g. 60) in Vercel.
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   try {
@@ -9,12 +11,12 @@ export default async function handler(req, res) {
     const model = await getJSON(k(sport, "model:latest"));
     let odds = await getJSON(k(sport, "odds:latest"));
     const age = odds ? (Date.now() - Date.parse(odds.captured_at)) / 60000 : Infinity;
-    const staleAfter = Number(process.env[`STALE_MINUTES_${sport.id.toUpperCase()}`] || process.env.STALE_MINUTES || sport.staleMin);
+    const autoAfter = Number(process.env[`STALE_MINUTES_${sport.id.toUpperCase()}`] || process.env.STALE_MINUTES || 0);
     const wantsRefresh = Boolean(req.query.refresh);
     let note = null;
 
     const inj = await getInjuries(sport);
-    if (age > staleAfter || (wantsRefresh && age > 10)) {
+    if ((wantsRefresh && age > 10) || (autoAfter > 0 && age > autoAfter)) {
       try {
         odds = await captureOdds(sport, model, inj);
       } catch (e) {
@@ -22,11 +24,13 @@ export default async function handler(req, res) {
         note = `Showing the last saved odds. New capture failed: ${e.message}`;
       }
     } else if (wantsRefresh) {
-      note = `Odds were captured ${Math.round(age)} minutes ago. Manual capture is limited to once every 10 minutes to save API requests.`;
+      note = `Odds were captured ${Math.round(age)} minutes ago. Captures are limited to once every 10 minutes to save requests.`;
     }
 
-    const opens = await pipeline(odds.games.map((g) => ["LINDEX", `snaps:${g.id}`, 0]));
-    const games = odds.games.map((g, i) => {
+    const quota = await getJSON("quota");
+    const saved = odds?.games || [];
+    const opens = await pipeline(saved.map((g) => ["LINDEX", `snaps:${g.id}`, 0]));
+    const games = saved.map((g, i) => {
       const o = opens[i] ? JSON.parse(opens[i]) : null;
       const injuries = {
         home: teamInjuries(sport, inj, model, g.home_abbr),
@@ -43,8 +47,8 @@ export default async function handler(req, res) {
 
     res.json({
       sport: sport.id,
-      captured_at: odds.captured_at,
-      remaining: odds.remaining,
+      captured_at: odds?.captured_at || null,
+      remaining: quota?.remaining ?? odds?.remaining ?? null,
       model: model
         ? { uploaded_at: model.uploaded_at, trained_through: model.trained_through, test: model.test }
         : null,

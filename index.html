@@ -57,6 +57,7 @@ button { font: 600 .95rem var(--body); padding: 9px 16px; border-radius: 6px; cu
   background: var(--ink); color: var(--bg); border: 0; }
 button:disabled { opacity: .55; cursor: progress; }
 :focus-visible { outline: 3px solid var(--zone); outline-offset: 2px; }
+.capwrap { display: grid; gap: 3px; }
 .note { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--warn); background: var(--surface); font-size: .92rem; }
 .empty { margin: 32px 0; padding: 20px; background: var(--surface); border-radius: 8px; }
 .empty p { margin: 0 0 6px; }
@@ -174,7 +175,10 @@ td { white-space: nowrap; }
         <input type="number" id="totalMin" step="0.5" min="0" value="4">
       </label>
     </fieldset>
-    <button id="capture" type="button">Capture odds now</button>
+    <div class="capwrap">
+      <button id="capture" type="button">Capture odds now</button>
+      <span class="small" id="capHint">Uses 2 Odds API requests</span>
+    </div>
   </div>
   <div id="note"></div>
   <div id="board"></div>
@@ -437,8 +441,14 @@ async function load(refresh = false) {
     if (token !== loadToken) return; // user switched sports meanwhile
     if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
     data = j;
-    const left = j.remaining != null ? ` <strong>${esc(j.remaining)}</strong> Odds API requests left this month.` : "";
-    $("status").innerHTML = `Odds captured <strong>${ago(j.captured_at)}</strong>.${left}`;
+    const left = j.remaining != null ? ` <strong>${esc(j.remaining)}</strong> requests left this month.` : "";
+    const old = j.captured_at && Date.now() - Date.parse(j.captured_at) > 3 * 3600e3 &&
+      j.games.some((g) => Date.parse(g.commence_time) > Date.now());
+    $("status").innerHTML = j.captured_at
+      ? `Odds captured <strong>${ago(j.captured_at)}</strong>.${left}${old ? " Lines may have moved since then." : ""}`
+      : `No odds saved yet. Tap Capture odds now.${left}`;
+    $("capHint").textContent = j.remaining != null
+      ? `Uses 2 of your ${j.remaining} requests` : "Uses 2 Odds API requests";
     $("note").innerHTML = j.note ? `<p class="note">${esc(j.note)}</p>` : "";
     const m = j.model;
     $("modelInfo").textContent = m ? modelText(m) : "";

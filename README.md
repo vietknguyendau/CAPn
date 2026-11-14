@@ -41,10 +41,11 @@ The code accepts either `KV_REST_API_URL`/`KV_REST_API_TOKEN` or `UPSTASH_REDIS_
 After that, the NBA model updates at 9 AM and 3 PM Central every day, and the NFL model Monday, Tuesday and Friday mornings. `Update model.bat` still works as a manual backup on Windows.
 
 ## How odds get captured
-- Opening the board captures fresh odds if the last capture is over 30 minutes old (`STALE_MINUTES` env var changes this).
-- **Capture odds now** forces a capture, at most once every 10 minutes.
-- A daily cron at 22:00 UTC (about 2 hours before most tip-offs) captures a near-closing line, even if you don't open the site.
-- Each capture uses 2 Odds API requests (spreads + totals, US books). The board shows how many you have left.
+- **Opening the site never uses Odds API requests.** It shows the last saved odds, with fresh injuries and model numbers.
+- **Capture odds now** pulls fresh lines (2 requests per sport), at most once every 10 minutes.
+- Automatic captures, so every game gets a pre-game number for the History tab: NBA daily at 22:00 UTC (4 PM Central), NFL Sunday, Monday and Thursday at 16:00 UTC. About 86 requests a month.
+- The free plan has 500 requests a month, shared by both sports. The board shows how many are left.
+- To bring back automatic captures when the page opens, set `STALE_MINUTES` (for example `60`) in Vercel and redeploy.
 
 ## NBA model (v3)
 - **Ratings:** offensive, defensive and net rating per 100 possessions, season-to-date and last 10 games, blended with last season's early on.
