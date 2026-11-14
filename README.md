@@ -40,14 +40,23 @@ The code accepts either `KV_REST_API_URL`/`KV_REST_API_TOKEN` or `UPSTASH_REDIS_
 
 After that, the NBA model updates at 9 AM and 3 PM Central every day, and the NFL model Monday, Tuesday and Friday mornings. `Update model.bat` still works as a manual backup on Windows.
 
+## Keeping the site private
+Vercel's own login lock (free on every plan) keeps everyone but you out:
+1. Vercel → your project → Settings → Deployment Protection.
+2. Turn on **Vercel Authentication** and choose **All Deployments**. Save.
+3. On the same page, under **Protection Bypass for Automation**, add a secret and copy it.
+4. GitHub repo → Settings → Secrets and variables → Actions → New repository secret: `VERCEL_BYPASS` = that secret.
+
+Visitors now have to sign in to your Vercel account. The GitHub jobs send the bypass secret in the `x-vercel-protection-bypass` header. All scheduled captures run from GitHub (`capture-lines.yml`), so `vercel.json` has no crons.
+
 ## How odds get captured
 - **Opening the site never uses Odds API requests.** It shows the last saved odds, with fresh injuries and model numbers.
 - **Capture odds now** pulls fresh lines (2 requests per sport), at most once every 10 minutes.
-- Scheduled captures, so every game has a pre-game line for the History tab:
-  - NBA: 23:30 UTC (Vercel cron) and 01:30 UTC (GitHub "Capture lines"), about 30 minutes before early tips and before late tips.
-  - NFL: 16:00 UTC Sun/Mon/Thu (Vercel), plus 17:15 and 23:45 UTC Sunday and 23:30 UTC Mon/Thu (GitHub).
-  - About 180 requests a month in total, leaving roughly 320 of the free 500 for the button.
-- `/api/capture` only runs for Vercel's cron or a request carrying `MODEL_SECRET` (or `CRON_SECRET`), and never more than once every 10 minutes.
+- Scheduled captures (GitHub "Capture lines"), so every game has a pre-game line for the History tab:
+  - NBA: 23:30 and 01:30 UTC daily, before early and late tips.
+  - NFL: 16:00 UTC Sun/Mon/Thu, plus 17:15 and 23:45 UTC Sunday and 23:30 UTC Mon/Thu.
+  - About 180 requests a month, leaving roughly 320 of the free 500 for the button.
+- `/api/capture` only runs for requests carrying `MODEL_SECRET` (or `CRON_SECRET`), and never more than once every 10 minutes.
 - To bring back automatic captures when the page opens, set `STALE_MINUTES` (for example `60`) in Vercel and redeploy.
 
 ## Finding an edge

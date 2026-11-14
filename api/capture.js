@@ -1,14 +1,14 @@
 import { getJSON, captureOdds, getInjuries, sportFrom, SPORTS, k } from "./_lib.js";
 
-// Scheduled captures: Vercel crons (vercel.json) and the GitHub "Capture lines" workflow.
-// Allowed callers: Vercel's cron, or anyone sending CRON_SECRET or MODEL_SECRET.
+// Scheduled captures come from the GitHub "Capture lines" workflow.
+// Allowed callers: requests sending MODEL_SECRET (or CRON_SECRET, if you set one).
 // Never captures more than once every 10 minutes per sport.
 function allowed(req) {
   const auth = req.headers.authorization || "";
   const cron = process.env.CRON_SECRET, model = process.env.MODEL_SECRET;
   if (cron && auth === `Bearer ${cron}`) return true;
   if (model && auth === `Bearer ${model}`) return true;
-  return !cron && /vercel-cron/i.test(req.headers["user-agent"] || "");
+  return false;
 }
 
 export async function run(req, res, sport) {

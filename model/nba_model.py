@@ -495,8 +495,10 @@ def main():
         if os.environ.get("GITHUB_ACTIONS"):
             raise SystemExit("Add BOARD_URL and MODEL_SECRET under your repo's Settings > Secrets and variables > Actions.")
         return
-    r = requests.post(f"{BOARD_URL}/api/model", json=payload,
-                      headers={"Authorization": f"Bearer {MODEL_SECRET}"}, timeout=60)
+    headers = {"Authorization": f"Bearer {MODEL_SECRET}"}
+    if os.environ.get("VERCEL_BYPASS", "").strip():  # gets through Vercel's login lock
+        headers["x-vercel-protection-bypass"] = os.environ["VERCEL_BYPASS"].strip()
+    r = requests.post(f"{BOARD_URL}/api/model", json=payload, headers=headers, timeout=60)
     print("\nUpload:", r.status_code, r.text)
     r.raise_for_status()
 
