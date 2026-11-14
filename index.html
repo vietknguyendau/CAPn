@@ -3,11 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Line board</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏀</text></svg>">
+<title>CapNTheLines</title>
+<link rel="icon" type="image/png" href="brand/favicon.png">
+<link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="CapNTheLines">
+<meta name="theme-color" content="#121A24">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:ital,wght@0,600;0,700;1,700&display=swap" rel="stylesheet">
 <style>
 :root {
   color-scheme: light;
@@ -20,6 +23,8 @@
   --zone: #1F8A5B;
   --zone-wash: #DDF1E6;
   --warn: #A86A00;
+  --gold: #A87A00;   /* logo wordmark, darkened for light backgrounds */
+  --cyan: #0A86AD;
   --s1: #2a78d6;  /* chart series: spreads */
   --s2: #eb6834;  /* chart series: totals */
   --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
@@ -34,6 +39,7 @@
     --bg: #121A24; --surface: #18222F; --ink: #E6ECF2; --steel: #8C9AAB;
     --rule: #2A3646; --track: #253141; --zone: #3DBE84; --zone-wash: #17372A; --warn: #E0A93A;
     --s1: #3987e5; --s2: #d95926;
+    --gold: #F5C518; --cyan: #2BD2F5;
   }
 }
 *, *::before, *::after { box-sizing: inherit; }
@@ -42,6 +48,12 @@ main { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
 h1 { font: 700 2.6rem/1 var(--display); margin: 0 0 6px; letter-spacing: .01em; }
 .status { color: var(--steel); margin: 0; font-size: .95rem; }
 .status strong { color: var(--ink); font-weight: 500; }
+.brand { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 16px; text-decoration: none; }
+.brand img { width: 48px; height: 48px; border-radius: 10px; display: block; }
+.wordmark { font: italic 700 1.9rem/1 var(--display); letter-spacing: .01em; }
+.wordmark .c1 { color: var(--gold); }
+.wordmark .c2 { color: var(--cyan); }
+.wordmark .c3 { color: var(--ink); }
 .topbar { display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: space-between; margin: 0 0 14px; }
 .tabs { display: flex; gap: 6px; }
 .tabs button { background: transparent; color: var(--steel); border: 1px solid var(--rule); font: 700 1.05rem/1 var(--display);
@@ -165,6 +177,10 @@ td { white-space: nowrap; }
 </head>
 <body>
 <main>
+  <a class="brand" href="./" id="home" aria-label="CapNTheLines home">
+    <img src="brand/logo-mark.png" alt="" width="48" height="48">
+    <span class="wordmark"><span class="c1">Cap</span><span class="c2">NThe</span><span class="c3">Lines</span></span>
+  </a>
   <div class="topbar">
     <div class="tabs" role="group" aria-label="Sport">
       <button type="button" data-sport="nba" aria-pressed="true">NBA</button>
@@ -238,7 +254,7 @@ const sk = (id) => (sport === "nba" ? id : `${sport}:${id}`);
 function applySport() {
   const S = SPORT[sport];
   $("title").textContent = view === "history" ? `${S.name} pick history` : `${S.name} line board`;
-  document.title = $("title").textContent;
+  document.title = `CapNTheLines · ${$("title").textContent}`;
   $("spreadMin").value = store.get(sk("spreadMin"), S.spread);
   $("totalMin").value = store.get(sk("totalMin"), S.total);
   $("amberInfo").textContent = S.amber;
