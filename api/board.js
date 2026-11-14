@@ -1,4 +1,4 @@
-import { getJSON, captureOdds, predict, pipeline } from "./_lib.js";
+import { getJSON, captureOdds, predict, pipeline, getInjuries, teamInjuries } from "./_lib.js";
 
 // GET /api/board            -> odds + model predictions (auto-captures if odds are stale)
 // GET /api/board?refresh=1  -> capture now, if the last capture is over 10 minutes old
@@ -23,6 +23,7 @@ export default async function handler(req, res) {
       note = `Odds were captured ${Math.round(age)} minutes ago. Manual capture is limited to once every 10 minutes to save API requests.`;
     }
 
+    const inj = await getInjuries();
     const opens = await pipeline(odds.games.map((g) => ["LINDEX", `snaps:${g.id}`, 0]));
     const games = odds.games.map((g, i) => {
       const o = opens[i] ? JSON.parse(opens[i]) : null;
@@ -31,6 +32,10 @@ export default async function handler(req, res) {
         open_spread: o?.spread ?? null,
         open_total: o?.total ?? null,
         pred: model ? predict(model, g) : null,
+        injuries: {
+          home: teamInjuries(inj, model, g.home_abbr),
+          away: teamInjuries(inj, model, g.away_abbr),
+        },
       };
     });
 
@@ -42,6 +47,9 @@ export default async function handler(req, res) {
         : null,
       games,
       note,
+      injuries_at: inj.t,
+      injuries_error: inj.error || (inj.stale ? "Injury feed didn't respond; showing the last saved report." : null),
+      has_minutes: Boolean(model?.players?.length),
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

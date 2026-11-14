@@ -56,6 +56,14 @@ h2 { font: 600 1.35rem/1.2 var(--display); margin: 36px 0 4px; color: var(--stee
 .game { background: var(--surface); border-radius: 8px; padding: 14px 16px 10px; margin-top: 10px;
   border-left: 4px solid transparent; }
 .game.hot { border-left-color: var(--zone); }
+.game.caution { border-left-color: var(--warn); }
+.edge.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.gap.warn, .dot.warn { background: var(--warn); }
+.flag { display: inline-block; font: 600 .78rem/1 var(--body); letter-spacing: .03em; text-transform: uppercase;
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 3px 6px; margin: 2px 0 4px; }
+.inj { font-size: .86rem; color: var(--steel); margin: 0 0 6px; }
+.inj b { color: var(--ink); font-weight: 600; }
+.inj .lvl-out { color: var(--warn); font-weight: 600; }
 .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .teams { font: 700 1.7rem/1 var(--display); }
 .teams .at { font-weight: 600; color: var(--steel); font-size: 1.1rem; margin: 0 .3em; }
@@ -111,6 +119,8 @@ footer a { color: var(--ink); }
 
   <footer>
     <p>Lines are the median across US books. The bar shows the gap between the market (tick) and the model (dot).</p>
+    <p>Amber means check the news before betting: a player averaging 24+ minutes is out, doubtful or questionable, or the model is 6+ points off the spread or 9+ off the total. Bold names are key players. Injuries come from ESPN.</p>
+    <p id="injInfo"></p>
     <p id="modelInfo"></p>
     <p><a href="/api/export">Download line history (CSV)</a></p>
   </footer>
@@ -119,6 +129,8 @@ footer a { color: var(--ink); }
 <script>
 const $ = (id) => document.getElementById(id);
 let data = null;
+const BIG_SPREAD = 6;  // edges this big usually mean the market knows something
+const BIG_TOTAL = 9;
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
@@ -151,11 +163,11 @@ function spreadText(g, homeSpread, model = false) {
   return homeSpread < 0 ? `${g.home_abbr} ${f(homeSpread)}` : `${g.away_abbr} -${f(Math.abs(homeSpread))}`;
 }
 
-function track(market, model, range, inZone) {
+function track(market, model, range, inZone, warn = false) {
   const pos = (x) => Math.max(0, Math.min(100, 50 + ((x - market) / range) * 50));
   const p = pos(model);
   const left = Math.min(50, p), width = Math.abs(p - 50);
-  const z = inZone ? " in" : "";
+  const z = inZone ? (warn ? " warn" : " in") : "";
   return `<div class="track" aria-hidden="true">
     <span class="gap${z}" style="left:${left}%;width:${width}%"></span>
     <span class="tick" style="left:calc(50% - 1px)"></span>
@@ -169,6 +181,17 @@ function gameHTML(g) {
   const p = g.pred;
   let spreadRow, totalRow, hot = false, sub = "";
 
+  // Caution: a key player is out or uncertain, or the model is far from the market.
+  const inj = g.injuries || { home: [], away: [] };
+  const keyHurt = [...inj.home, ...inj.away].some((x) => x.key);
+  const sEdge = p && g.spread_home != null ? p.margin + g.spread_home : 0;
+  const tEdge = p && g.total != null ? p.total - g.total : 0;
+  const bigGap = Math.abs(sEdge) >= BIG_SPREAD || Math.abs(tEdge) >= BIG_TOTAL;
+  const caution = !started && p && (keyHurt || bigGap);
+  const reasons = [];
+  if (keyHurt) reasons.push("key player out or questionable");
+  if (bigGap) reasons.push("model far from market");
+
   const openS = `<span class="small">${g.open_spread != null && g.open_spread !== g.spread_home ? `Market, open ${spreadText(g, g.open_spread)}` : "Market"}</span>`;
   const openT = `<span class="small">${g.open_total != null && g.open_total !== g.total ? `Market, open ${line(g.open_total)}` : "Market"}</span>`;
 
@@ -178,6 +201,8 @@ function gameHTML(g) {
     const notes = [];
     if (p.rest_home === 1) notes.push(`${g.home_abbr} on a back-to-back`);
     if (p.rest_away === 1) notes.push(`${g.away_abbr} on a back-to-back`);
+    if (p.g3_home) notes.push(`${g.home_abbr} 3rd game in 4 nights`);
+    if (p.g3_away) notes.push(`${g.away_abbr} 3rd game in 4 nights`);
     sub = notes.join(", ");
   } else {
     sub = "No model numbers for this matchup yet.";
@@ -190,8 +215,8 @@ function gameHTML(g) {
     const side = e > 0 ? g.home_abbr : g.away_abbr;
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span>
       <span class="num">${spreadText(g, -p.margin, true)}<span class="small">Model</span></span>
-      <span class="num edge${inZ ? " in" : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">Lean</span></span>
-      ${track(-g.spread_home, p.margin, 10, inZ)}`;
+      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>
+      ${track(-g.spread_home, p.margin, 10, inZ, caution)}`;
   } else {
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
@@ -202,18 +227,33 @@ function gameHTML(g) {
     hot ||= inZ;
     totalRow = `<span class="num">${line(g.total)}${openT}</span>
       <span class="num">${fmt(p.total)}<span class="small">Model</span></span>
-      <span class="num edge${inZ ? " in" : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">Lean</span></span>
-      ${track(g.total, p.total, 12, inZ)}`;
+      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>
+      ${track(g.total, p.total, 12, inZ, caution)}`;
   } else {
     totalRow = `<span class="num">${line(g.total)}${openT}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
 
-  return `<article class="game${hot ? " hot" : ""}">
+  const injHTML = started ? "" : [["away", g.away_abbr], ["home", g.home_abbr]].map(([side, ab]) => {
+    const list = (inj[side] || []).filter((x) => !x.longTerm);
+    if (!list.length) return "";
+    const items = list.map((x) => {
+      const lvl = x.level === "out" ? "Out" : x.level === "doubtful" ? "Doubtful" : "Questionable";
+      const nm = x.key ? `<b>${esc(x.name)}</b>` : esc(x.name);
+      const min = x.mpg != null ? ` ${fmt(x.mpg, 0)} min` : "";
+      return `${nm}${min} <span class="lvl-${x.level}">${lvl}</span>`;
+    }).join(" · ");
+    return `<p class="inj">${esc(ab)}: ${items}</p>`;
+  }).join("");
+
+  const cls = caution && hot ? " caution" : hot ? " hot" : "";
+  return `<article class="game${cls}">
     <div class="head">
       <div class="teams">${esc(g.away_abbr)}<span class="at">at</span>${esc(g.home_abbr)}</div>
       <div class="time">${timeLabel(g.commence_time)}</div>
     </div>
     <div class="sub">${esc(sub)}</div>
+    ${caution && hot ? `<span class="flag">Check news: ${reasons.join(", ")}</span>` : ""}
+    ${injHTML}
     <div class="line"><span class="kind">Spread</span>${spreadRow}</div>
     <div class="line"><span class="kind">Total</span>${totalRow}</div>
   </article>`;
@@ -233,7 +273,7 @@ function render() {
     html += gameHTML(g);
   }
   if (!data.model) {
-    html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>Run model/nba_model_v1.py on your computer to add model numbers and edges. Market lines are below.</p></div>` + html;
+    html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>Double-click Update model on your computer to add model numbers and edges. Market lines are below.</p></div>` + html;
   }
   $("board").innerHTML = html;
 }
@@ -253,6 +293,10 @@ async function load(refresh = false) {
       ? `Model uploaded ${ago(m.uploaded_at)}, with games through ${m.trained_through}.` +
         (m.test?.margin ? ` On ${m.test.margin.season}, margin error was ${fmt(m.test.margin.mae)} points vs ${fmt(m.test.margin.baseline_mae)} for a no-skill guess.` : "")
       : "";
+    $("injInfo").textContent = j.injuries_error
+      ? `Injuries: ${j.injuries_error}`
+      : j.injuries_at ? `Injury report checked ${ago(j.injuries_at)}.` +
+        (j.has_minutes ? "" : " Run Update model once so the board knows which players are key.") : "";
     render();
   } catch (e) {
     $("status").textContent = "The board couldn't load.";

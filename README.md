@@ -48,6 +48,12 @@ Paste your `MODEL_SECRET` when asked. Re-run every day or two to keep team ratin
 - A daily cron at 22:00 UTC (about 2 hours before most tip-offs) captures a near-closing line, even if you don't open the site.
 - Each capture uses 2 Odds API requests (spreads + totals, US books). The board shows how many you have left.
 
+## Injuries, rest and early-season ratings (v2)
+- Injuries come from ESPN's public injury feed (no key needed), checked at most every 20 minutes. It's unofficial, so it can change without notice.
+- Player minutes come from the model upload, so the board knows who matters: 24+ minutes a game is a key player. Players who have missed most of the season are skipped, since the team's ratings already reflect their absence.
+- A game turns amber ("Check news") when a key player is out, doubtful or questionable, or the model is 6+ points off the spread or 9+ off the total.
+- The model blends last season's ratings into this season's, fading them out as games pile up, and adds a "3rd game in 4 nights" factor.
+
 ## Data
 - `/api/export` downloads every snapshot as CSV: line, total, and the model's numbers at that moment. The first snapshot per game is the open; the last pre-game snapshot is your closing line.
 - `/api/model` shows when the model was last uploaded.

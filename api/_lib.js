@@ -155,6 +155,13 @@ export function predict(model, g) {
   const rest = (t) => (t.last_game ? Math.min(Math.max(daysBetween(t.last_game, day), 0), 4) : 4);
   const rh = rest(h);
   const ra = rest(a);
+  // Third game in four nights: both of the team's last two games were within 3 days.
+  const g3 = (t) => ((t.recent_dates || []).filter((d) => {
+    const n = daysBetween(d, day);
+    return n >= 1 && n <= 3;
+  }).length >= 2 ? 1 : 0);
+  const h3 = g3(h);
+  const a3 = g3(a);
 
   // Feature names match nba_model_v1.py exactly.
   const f = {
@@ -162,6 +169,7 @@ export function predict(model, g) {
     D_NET_SZN: h.NET_SZN - a.NET_SZN,
     D_REST: rh - ra,
     D_B2B: (rh === 1 ? 1 : 0) - (ra === 1 ? 1 : 0),
+    D_G3IN4: h3 - a3,
     PACE_SZN_H: h.PACE_SZN, PACE_SZN_A: a.PACE_SZN,
     PACE_L10_H: h.PACE_L10, PACE_L10_A: a.PACE_L10,
     ORTG_SZN_H: h.ORTG_SZN, DRTG_SZN_H: h.DRTG_SZN,
@@ -171,5 +179,64 @@ export function predict(model, g) {
   const margin = lin(model.margin);
   const total = lin(model.total);
   if (!Number.isFinite(margin) || !Number.isFinite(total)) return null;
-  return { margin, total, rest_home: rh, rest_away: ra };
+  return { margin, total, rest_home: rh, rest_away: ra, g3_home: h3, g3_away: a3 };
+}
+
+// ---------- Injuries (ESPN's public feed, cached 20 minutes) ----------
+export function normName(name) {
+  return String(name || "")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z ]/g, "")
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, "")
+    .split(/\s+/).filter(Boolean).join(" ");
+}
+
+function level(inj) {
+  const s = `${inj.status || ""} ${inj.details?.fantasyStatus?.description || ""}`.toLowerCase();
+  if (s.includes("out")) return "out";
+  if (s.includes("doubtful")) return "doubtful";
+  if (s.includes("questionable") || s.includes("day-to-day") || s.includes("gtd")) return "questionable";
+  return null; // probable or unknown: ignore
+}
+
+export async function getInjuries() {
+  let cached = null;
+  try { cached = await getJSON("injuries:latest"); } catch {}
+  if (cached && Date.now() - Date.parse(cached.t) < 20 * 60000) return cached;
+  try {
+    const r = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries");
+    if (!r.ok) throw new Error(`ESPN ${r.status}`);
+    const j = await r.json();
+    const teams = {};
+    for (const team of j.injuries || []) {
+      const ab = abbr(team.displayName || "");
+      teams[ab] = (team.injuries || []).map((inj) => ({
+        name: inj.athlete?.displayName || "",
+        n: normName(inj.athlete?.displayName),
+        level: level(inj),
+        detail: inj.shortComment || inj.details?.type || "",
+      })).filter((x) => x.level && x.n);
+    }
+    const out = { t: new Date().toISOString(), teams };
+    await setJSON("injuries:latest", out);
+    return out;
+  } catch (e) {
+    return cached ? { ...cached, stale: true } : { t: null, teams: {}, error: e.message };
+  }
+}
+
+// Injuries for one team, with minutes from the model so we know who matters.
+export function teamInjuries(inj, model, team) {
+  const list = inj.teams?.[team] || [];
+  const players = model?.players || [];
+  const teamGames = model?.teams?.[team]?.games || 0;
+  return list.map((p) => {
+    const hit = players.find((x) => x.n === p.n && x.t === team) || players.find((x) => x.n === p.n);
+    const mpg = hit ? hit.m : null;
+    // A player who has missed most of the season is already baked into the team's ratings.
+    const longTerm = hit && teamGames >= 8 ? hit.gp < teamGames * 0.4 : !hit && players.length > 0;
+    const key = mpg != null && mpg >= 24 && !longTerm;
+    return { name: p.name, level: p.level, detail: p.detail, mpg, key, longTerm };
+  }).filter((p) => p.mpg == null ? !players.length : p.mpg >= 15)
+    .sort((a, b) => (b.mpg || 0) - (a.mpg || 0));
 }
