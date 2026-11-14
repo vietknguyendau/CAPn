@@ -1,0 +1,30 @@
+name: NBA model
+
+on:
+  schedule:
+    - cron: "0 15 * * *"
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore closing-line cache
+        uses: actions/cache@v4
+        with:
+          path: model/data/nba_lines.json
+          key: nba-lines-${{ github.run_id }}
+          restore-keys: nba-lines-
+      - name: Install packages
+        run: pip install pandas numpy pyarrow scikit-learn requests
+      - name: Train and upload
+        env:
+          BOARD_URL: ${{ secrets.BOARD_URL }}
+          MODEL_SECRET: ${{ secrets.MODEL_SECRET }}
+        run: python model/nba_model.py
