@@ -110,17 +110,24 @@ function median(a) {
 function summarize(e, sport) {
   const spreads = [];
   const totals = [];
+  const books = [];
   for (const b of e.bookmakers || []) {
+    const row = { k: b.key, n: b.title || b.key };
     for (const m of b.markets || []) {
       if (m.key === "spreads") {
-        const o = m.outcomes.find((x) => x.name === e.home_team);
-        if (o && o.point != null) spreads.push(o.point);
+        const h = m.outcomes.find((x) => x.name === e.home_team);
+        const a = m.outcomes.find((x) => x.name === e.away_team);
+        if (h && h.point != null) { spreads.push(h.point); row.hs = h.point; row.hp = h.price; }
+        if (a && a.point != null) { row.as = a.point; row.ap = a.price; }
       }
       if (m.key === "totals") {
         const o = m.outcomes.find((x) => x.name === "Over");
-        if (o && o.point != null) totals.push(o.point);
+        const u = m.outcomes.find((x) => x.name === "Under");
+        if (o && o.point != null) { totals.push(o.point); row.ot = o.point; row.op = o.price; }
+        if (u && u.point != null) { row.ut = u.point; row.up = u.price; }
       }
     }
+    if (row.hs != null || row.ot != null) books.push(row);
   }
   return {
     id: e.id,
@@ -131,7 +138,7 @@ function summarize(e, sport) {
     away_abbr: abbr(e.away_team, sport),
     spread_home: median(spreads), // consensus (median) home spread, e.g. -5.5
     total: median(totals),        // consensus total
-    books: (e.bookmakers || []).length,
+    books,                        // every book's numbers, for line shopping
   };
 }
 
@@ -304,11 +311,69 @@ export async function getInjuries(sport) {
       })).filter((x) => x.level && x.n);
     }
     const out = { t: new Date().toISOString(), teams };
+    if (cached?.teams) await recordChanges(sport, cached.teams, teams, out.t);
     await setJSON(k(sport, "injuries:latest"), out);
     return out;
   } catch (e) {
     return cached ? { ...cached, stale: true } : { t: null, teams: {}, error: e.message };
   }
+}
+
+// ---------- Injury news: status changes between reports ----------
+// Kept for 48 hours. "none" means the player is no longer listed (cleared to play).
+async function recordChanges(sport, before, after, t) {
+  const changes = [];
+  for (const team of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const was = new Map((before[team] || []).map((x) => [x.n, x]));
+    const now = new Map((after[team] || []).map((x) => [x.n, x]));
+    for (const n of new Set([...was.keys(), ...now.keys()])) {
+      const from = was.get(n)?.level || "none", to = now.get(n)?.level || "none";
+      if (from !== to) changes.push({ t, team, n, name: (now.get(n) || was.get(n)).name, from, to });
+    }
+  }
+  if (!changes.length) return;
+  let list = [];
+  try { list = (await getJSON(k(sport, "injuries:changes"))) || []; } catch {}
+  const cutoff = Date.now() - 48 * 3600e3;
+  list = [...list.filter((c) => Date.parse(c.t) > cutoff), ...changes].slice(-400);
+  await setJSON(k(sport, "injuries:changes"), list);
+}
+
+export async function getInjuryChanges(sport) {
+  try { return (await getJSON(k(sport, "injuries:changes"))) || []; } catch { return []; }
+}
+
+// Did the line move as much as the news says it should? Uses the board's saved lines.
+// snaps: this game's saved lines, oldest first. Returns alerts for news in the last 24 hours.
+export function newsAlerts(sport, model, g, changes, snaps) {
+  const out = [];
+  const players = model?.players || [];
+  const since = Date.now() - 24 * 3600e3;
+  for (const c of changes) {
+    if (Date.parse(c.t) < since || (c.team !== g.home_abbr && c.team !== g.away_abbr)) continue;
+    const hit = players.find((x) => x.n === c.n && x.t === c.team);
+    if (!hit) continue;
+    const before = [...snaps].reverse().find((s) => Date.parse(s.t) <= Date.parse(c.t));
+    const after = snaps.length ? snaps[snaps.length - 1] : null;
+    const fresh = !after || Date.parse(after.t) <= Date.parse(c.t);   // no line captured since the news
+    if (sport.id === "nfl") {
+      if (hit.role !== "QB1") continue;
+      out.push({ name: c.name, team: c.team, from: c.from, to: c.to, t: c.t, qb: true, fresh,
+                 moved: !fresh && before ? after.spread - before.spread : null });
+      continue;
+    }
+    if (hit.mg == null) continue;
+    const sitFrom = SIT[c.from] ?? 0, sitTo = SIT[c.to] ?? 0;
+    const dTeam = hit.mg * (hit.fr ?? 1) * (sitTo - sitFrom);       // change to that team's margin
+    if (Math.abs(dTeam) < 1.5) continue;                              // only news worth 1.5+ points
+    const dHome = c.team === g.home_abbr ? dTeam : -dTeam;
+    const expected = -dHome;                                          // expected change in the home spread
+    const moved = !fresh && before ? after.spread - before.spread : null;
+    const priced = moved == null ? null : Math.max(0, Math.min(1, moved / expected));
+    out.push({ name: c.name, team: c.team, from: c.from, to: c.to, t: c.t, worth: Math.abs(dTeam),
+               expected, moved, priced, fresh, unpriced: fresh || (priced != null && priced < 0.5) });
+  }
+  return out;
 }
 
 // Injuries for one team, with minutes from the model so we know who matters.

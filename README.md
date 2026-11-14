@@ -43,9 +43,18 @@ After that, the NBA model updates at 9 AM and 3 PM Central every day, and the NF
 ## How odds get captured
 - **Opening the site never uses Odds API requests.** It shows the last saved odds, with fresh injuries and model numbers.
 - **Capture odds now** pulls fresh lines (2 requests per sport), at most once every 10 minutes.
-- Automatic captures, so every game gets a pre-game number for the History tab: NBA daily at 22:00 UTC (4 PM Central), NFL Sunday, Monday and Thursday at 16:00 UTC. About 86 requests a month.
-- The free plan has 500 requests a month, shared by both sports. The board shows how many are left.
+- Scheduled captures, so every game has a pre-game line for the History tab:
+  - NBA: 23:30 UTC (Vercel cron) and 01:30 UTC (GitHub "Capture lines"), about 30 minutes before early tips and before late tips.
+  - NFL: 16:00 UTC Sun/Mon/Thu (Vercel), plus 17:15 and 23:45 UTC Sunday and 23:30 UTC Mon/Thu (GitHub).
+  - About 180 requests a month in total, leaving roughly 320 of the free 500 for the button.
+- `/api/capture` only runs for Vercel's cron or a request carrying `MODEL_SECRET` (or `CRON_SECRET`), and never more than once every 10 minutes.
 - To bring back automatic captures when the page opens, set `STALE_MINUTES` (for example `60`) in Vercel and redeploy.
+
+## Finding an edge
+- **Closing line value (History → Board picks):** each pick is graded at the first saved line where it reached the Green Zone, and compared with the last line saved before tip-off. Consistently positive line value over a few hundred picks is the best sign of a real edge.
+- **Injury news alerts:** when a valued player's status changes (ESPN), the board compares how far the line has moved since with what the player is worth. Blue NEWS notes flag news the line may not reflect yet. Changes are only noticed when the site or a scheduled capture checks injuries (at most every 20 minutes).
+- **Line shopping:** every book's numbers are saved with each capture. The board shows the best number for the lean side among the books you tick under "My sportsbooks".
+- **Totals** are recentered on the last 60 games so the model no longer leans Over, but they still haven't beaten closing lines in testing, so the board labels them low confidence.
 
 ## NBA model (v3)
 - **Ratings:** offensive, defensive and net rating per 100 possessions, season-to-date and last 10 games, blended with last season's early on.

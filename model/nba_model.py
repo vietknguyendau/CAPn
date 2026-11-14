@@ -41,6 +41,7 @@ RATINGS = ["ORTG", "DRTG", "NET", "PACE"]
 K_MIN = 300        # a player's last season counts like this many minutes of this season
 K_GP = 5           # ...and like this many games for minutes per game
 AVAIL_WINDOW = 10  # "recently available" = share of the team's last 10 games he played
+TOTAL_RECENTER = 60  # shift totals by the model's average miss over the last 60 games (scoring levels drift)
 
 # Closing lines: DraftKings, as saved in ESPN's game files (hosted on GitHub by sportsdataverse).
 GAME_JSON = "https://raw.githubusercontent.com/sportsdataverse/hoopR-nba-raw/main/nba/json/final/{}.json"
@@ -379,7 +380,8 @@ def history(games, season, first):
         if tr.empty or te.empty:
             continue
         pm = Ridge(alpha=1.0).fit(tr[MARGIN_FEATS], tr.MARGIN).predict(te[MARGIN_FEATS])
-        pt = Ridge(alpha=1.0).fit(tr[TOTAL_FEATS], tr.TOTAL).predict(te[TOTAL_FEATS])
+        tm = Ridge(alpha=1.0).fit(tr[TOTAL_FEATS], tr.TOTAL)
+        pt = tm.predict(te[TOTAL_FEATS]) + recenter(games, tm).loc[te.index].to_numpy()
         rows = []
         for (gid, r), m, t in zip(te.iterrows(), pm, pt):
             ln = lines.get(str(gid)) or []
@@ -391,6 +393,13 @@ def history(games, season, first):
         out.append({"label": f"{S - 1}-{S - 2000:02d}", "rows": rows})
         print(f"History {S - 1}-{S - 2000:02d}: {len(rows)} games with closing lines.")
     return {"source": "DraftKings closing lines, via ESPN", "cols": HIST_COLS, "seasons": out}
+
+
+def recenter(games, model):
+    """Before each game: the total model's average miss over the previous TOTAL_RECENTER games."""
+    g = games.sort_values("GAME_DATE_H")
+    err = pd.Series(g.TOTAL.to_numpy() - model.predict(g[TOTAL_FEATS]), index=g.index)
+    return err.shift(1).rolling(TOTAL_RECENTER, min_periods=30).mean().fillna(0)
 
 
 def recent_results(games, days=30):
@@ -458,7 +467,15 @@ def main():
 
         final = Ridge(alpha=1.0).fit(games[feats], games[target])
         c = dict(zip(feats, final.coef_))
-        payload[target.lower()] = {"intercept": final.intercept_, "features": feats, "coefs": list(final.coef_)}
+        intercept = final.intercept_
+        if target == "TOTAL":
+            # Recenter on recent scoring so the model doesn't lean Over (or Under) when the league shifts.
+            g = games.sort_values("GAME_DATE_H").tail(TOTAL_RECENTER)
+            shift = float(np.mean(g.TOTAL - final.predict(g[feats])))
+            intercept += shift
+            payload["total_shift"] = shift
+            print(f"Totals recentered by {shift:+.2f} points to match the last {TOTAL_RECENTER} games.")
+        payload[target.lower()] = {"intercept": intercept, "features": feats, "coefs": list(final.coef_)}
         coefs["margin" if target == "MARGIN" else "total"] = c["D_MISS_VAL" if target == "MARGIN" else "S_MISS_VAL"]
 
     payload["history"] = history(games, season, seasons[0])

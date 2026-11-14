@@ -58,6 +58,12 @@ button { font: 600 .95rem var(--body); padding: 9px 16px; border-radius: 6px; cu
 button:disabled { opacity: .55; cursor: progress; }
 :focus-visible { outline: 3px solid var(--zone); outline-offset: 2px; }
 .capwrap { display: grid; gap: 3px; }
+.booksel { width: 100%; font-size: .9rem; }
+.booksel summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.booksel .list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 2px; }
+.booksel label { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; color: var(--ink); font-size: .9rem; }
+.best { grid-column: 2 / -1; font-size: .84rem; color: var(--steel); margin-top: 2px; }
+.best b { color: var(--ink); font-weight: 600; }
 .note { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--warn); background: var(--surface); font-size: .92rem; }
 .empty { margin: 32px 0; padding: 20px; background: var(--surface); border-radius: 8px; }
 .empty p { margin: 0 0 6px; }
@@ -66,6 +72,12 @@ h2 { font: 600 1.35rem/1.2 var(--display); margin: 36px 0 4px; color: var(--stee
   border-left: 4px solid transparent; }
 .game.hot { border-left-color: var(--zone); }
 .game.caution { border-left-color: var(--warn); }
+.game.news { border-left-color: var(--s1); }
+.newsflag { margin: 4px 0 6px; padding: 7px 10px; border-radius: 6px; font-size: .86rem;
+  background: color-mix(in srgb, var(--s1) 12%, transparent); border-left: 3px solid var(--s1); }
+.newsflag b { font-weight: 700; letter-spacing: .03em; }
+.newsflag.priced { background: transparent; border-left-color: var(--rule); color: var(--steel); }
+.note.news { border-left-color: var(--s1); }
 .edge.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 .gap.warn, .dot.warn { background: var(--warn); }
 .flag { display: inline-block; font: 600 .78rem/1 var(--body); letter-spacing: .03em; text-transform: uppercase;
@@ -131,7 +143,7 @@ td { white-space: nowrap; }
 .res { font-weight: 600; font-size: .88rem; text-align: right; white-space: nowrap; }
 .res.win { color: var(--zone); }
 .res.loss { color: var(--ink); }
-.res.push { color: var(--steel); }
+.res.push, .res.pending { color: var(--steel); }
 .more { margin: 12px 0 0; background: transparent; color: var(--ink); border: 1px solid var(--rule); }
 .caveat { color: var(--steel); font-size: .88rem; margin: 14px 0 0; }
 [hidden] { display: none !important; }
@@ -143,6 +155,7 @@ td { white-space: nowrap; }
   .line { grid-template-columns: 1fr 1fr; }
   .line .kind { grid-column: 1 / -1; }
   .track { grid-column: 1 / -1; }
+  .best { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .game { animation: in .35s ease-out both; }
@@ -180,6 +193,11 @@ td { white-space: nowrap; }
       <span class="small" id="capHint">Uses 2 Odds API requests</span>
     </div>
   </div>
+  <details class="booksel" id="booksel" hidden>
+    <summary>My sportsbooks <span class="muted" id="bookCount"></span></summary>
+    <div class="list" id="bookList"></div>
+    <p class="small">Best available lines use only the books checked here.</p>
+  </details>
   <div id="note"></div>
   <div id="board"></div>
   <section id="history" hidden aria-live="polite"></section>
@@ -228,7 +246,8 @@ function applySport() {
   document.querySelectorAll("[data-sport]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sport === sport)));
   document.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
   const hist = view === "history";
-  for (const id of ["status", "capture", "note", "board", "boardFooter"]) $(id).hidden = hist;
+  for (const id of ["status", "capture", "capHint", "note", "board", "boardFooter"]) $(id).hidden = hist;
+  $("booksel").hidden = hist || !allBooks().length;
   $("history").hidden = !hist;
 }
 function setHash() {
@@ -345,7 +364,8 @@ function gameHTML(g) {
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span>
       <span class="num">${spreadText(g, -p.margin, true)}<span class="small">Model</span></span>
       <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>
-      ${track(-g.spread_home, p.margin, 10, inZ, caution)}`;
+      ${track(-g.spread_home, p.margin, 10, inZ, caution)}
+      ${bestSpreadHTML(g, p, e > 0 ? "home" : "away")}`;
   } else {
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
@@ -356,8 +376,9 @@ function gameHTML(g) {
     hot ||= inZ;
     totalRow = `<span class="num">${line(g.total)}${openT}</span>
       <span class="num">${fmt(p.total)}<span class="small">Model</span></span>
-      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>
-      ${track(g.total, p.total, 12, inZ, caution)}`;
+      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean · low confidence"}</span></span>
+      ${track(g.total, p.total, 12, inZ, caution)}
+      ${bestTotalHTML(g, p, e > 0 ? "over" : "under")}`;
   } else {
     totalRow = `<span class="num">${line(g.total)}${openT}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
@@ -377,7 +398,8 @@ function gameHTML(g) {
     return `<p class="inj">${esc(ab)}: ${items}</p>`;
   }).join("") + (p && !started && (Math.abs(p.inj_margin || 0) >= 0.1 || Math.abs(p.inj_total || 0) >= 0.1) ? injAdjText(g, p) : "");
 
-  const cls = caution && hot ? " caution" : hot ? " hot" : "";
+  const unpriced = !started && (g.news || []).some((n) => n.unpriced);
+  const cls = caution && hot ? " caution" : hot ? " hot" : unpriced ? " news" : "";
   return `<article class="game${cls}">
     <div class="head">
       <div class="teams">${esc(g.away_abbr)}<span class="at">at</span>${esc(g.home_abbr)}</div>
@@ -385,13 +407,84 @@ function gameHTML(g) {
     </div>
     <div class="sub">${esc(sub)}</div>
     ${caution && hot ? `<span class="flag">Check news: ${reasons.join(", ")}</span>` : ""}
+    ${started ? "" : newsHTML(g)}
     ${injHTML}
     <div class="line"><span class="kind">Spread</span>${spreadRow}</div>
     <div class="line"><span class="kind">Total</span>${totalRow}</div>
   </article>`;
 }
 
+// ---------- Line shopping ----------
+function allBooks() {
+  const m = new Map();
+  for (const g of data?.games || []) for (const b of Array.isArray(g.books) ? g.books : []) m.set(b.k, b.n);
+  return [...m].sort((a, b) => a[1].localeCompare(b[1]));
+}
+function myBooks() {
+  try { const v = JSON.parse(store.get("books", "null")); return Array.isArray(v) && v.length ? new Set(v) : null; } catch { return null; }
+}
+function renderBookList() {
+  const books = allBooks(), mine = myBooks();
+  $("booksel").hidden = view === "history" || !books.length;
+  $("bookList").innerHTML = books.map(([k, n]) =>
+    `<label><input type="checkbox" value="${esc(k)}" ${!mine || mine.has(k) ? "checked" : ""}>${esc(n)}</label>`).join("");
+  $("bookCount").textContent = mine ? `(${[...mine].filter((k) => books.some((b) => b[0] === k)).length} of ${books.length})` : `(all ${books.length})`;
+  $("bookList").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
+    const on = [...$("bookList").querySelectorAll("input:checked")].map((x) => x.value);
+    store.set("books", JSON.stringify(on.length === books.length ? [] : on));
+    renderBookList(); render();
+  }));
+}
+const price = (p) => (p == null ? "" : p > 0 ? `+${p}` : `−${Math.abs(p)}`);
+// Best number for a side among my books: the highest spread for that side (or lowest Over / highest Under),
+// with the better price breaking ties.
+function bestLine(g, side) {
+  const mine = myBooks();
+  const books = (Array.isArray(g.books) ? g.books : []).filter((b) => !mine || mine.has(b.k));
+  const pick = { home: ["hs", "hp", 1], away: ["as", "ap", 1], over: ["ot", "op", -1], under: ["ut", "up", 1] }[side];
+  let best = null;
+  for (const b of books) {
+    const pt = b[pick[0]], pr = b[pick[1]];
+    if (pt == null) continue;
+    const better = !best || pick[2] * (pt - best.pt) > 0 || (pt === best.pt && (pr ?? -999) > (best.pr ?? -999));
+    if (better) best = { pt, pr, book: b.n };
+  }
+  return best;
+}
+
 // Schedule spots worth knowing (travel, time zones, altitude, road trips).
+// ---------- Injury news vs line movement ----------
+const STATUS = { out: "Out", doubtful: "Doubtful", questionable: "Questionable", none: "cleared to play" };
+function newsHTML(g) {
+  return (g.news || []).map((n) => {
+    const when = timeLabel(n.t);
+    const what = `${esc(n.name)} (${esc(n.team)}) ${n.to === "none" ? "cleared to play" : `now ${STATUS[n.to]}`}${n.from !== "none" ? `, was ${STATUS[n.from]}` : ""}, ${when}`;
+    if (n.qb) {
+      const mv = n.fresh ? "No line captured since. Tap Capture odds now to see if it moved."
+        : n.moved != null ? `The line has moved ${fmt(Math.abs(n.moved))} since.` : "";
+      return `<div class="newsflag"><b>QB NEWS</b> · ${what}. ${mv}</div>`;
+    }
+    const worth = `worth about ${fmt(n.worth)} pts`;
+    if (n.fresh) return `<div class="newsflag"><b>NEWS</b> · ${what}, ${worth}. No line captured since. Tap Capture odds now to see if books have adjusted.</div>`;
+    if (n.unpriced) return `<div class="newsflag"><b>NEWS</b> · ${what}, ${worth}. The line moved ${fmt(Math.max(0, n.moved * Math.sign(n.expected)))} of an expected ${fmt(Math.abs(n.expected))}, so it may not be priced in yet.</div>`;
+    return `<div class="newsflag priced">${what}. The line has moved ${fmt(Math.abs(n.moved))}, so it looks priced in.</div>`;
+  }).join("");
+}
+
+function bestSpreadHTML(g, p, side) {
+  const b = bestLine(g, side);
+  if (!b) return "";
+  const ab = side === "home" ? g.home_abbr : g.away_abbr;
+  const edge = side === "home" ? p.margin + b.pt : b.pt - p.margin;
+  return `<div class="best">Best for ${esc(ab)}: <b>${signed(b.pt)}</b> ${price(b.pr)} at ${esc(b.book)} · edge ${fmt(edge)}</div>`;
+}
+function bestTotalHTML(g, p, side) {
+  const b = bestLine(g, side);
+  if (!b) return "";
+  const edge = side === "over" ? p.total - b.pt : b.pt - p.total;
+  return `<div class="best">Best ${side === "over" ? "Over" : "Under"}: <b>${line(b.pt)}</b> ${price(b.pr)} at ${esc(b.book)} · edge ${fmt(edge)}</div>`;
+}
+
 function travelNotes(g, p) {
   const out = [];
   const ord = (n) => (n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`);
@@ -415,6 +508,7 @@ function injAdjText(g, p) {
 
 function render() {
   if (!data) return;
+  renderBookList();
   const games = [...data.games].sort((a, b) => Date.parse(a.commence_time) - Date.parse(b.commence_time));
   if (!games.length) {
     $("board").innerHTML = `<div class="empty"><p><strong>No ${SPORT[sport].name} games on the board right now.</strong></p><p>${SPORT[sport].empty} Check back later or tap Capture odds now.</p></div>`;
@@ -429,6 +523,8 @@ function render() {
   if (!data.model) {
     html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>${SPORT[sport].noModel} Market lines are below.</p></div>` + html;
   }
+  const newsGames = games.filter((g) => Date.parse(g.commence_time) > Date.now() && (g.news || []).some((n) => n.unpriced)).length;
+  if (newsGames) html = `<p class="note news">${newsGames} game${newsGames === 1 ? " has" : "s have"} injury news the line may not reflect yet. Look for the blue NEWS notes.</p>` + html;
   $("board").innerHTML = html;
 }
 
@@ -509,7 +605,7 @@ async function loadHistory() {
 
 function sources() {
   const d = hist.data || {};
-  const out = [{ id: "live", label: "Board picks (live)", rows: d.live || [] }];
+  const out = [{ id: "live", label: "Board picks (live)", rows: d.live || [], live: true }];
   const seasons = d.replay?.seasons || [];
   [...seasons].reverse().forEach((x, i) => out.push({
     id: `replay:${x.label}`, label: `${i === 0 ? "This season" : x.label} (replay)`, rows: x.rows || [],
@@ -546,6 +642,48 @@ function grade(rows, sMin = Number($("spreadMin").value) || 0, tMin = Number($("
   }
   return picks;
 }
+// Live picks: you'd have bet at the first saved line where the game reached the Green Zone.
+// Closing line value (CLV) = how much better that number was than the last line saved before tip-off.
+function liveGrade(rows, sMin = Number($("spreadMin").value) || 0, tMin = Number($("totalMin").value) || 0) {
+  const picks = [];
+  for (const [date, away, home, snaps, ap, hp] of rows) {
+    const close = snaps[snaps.length - 1];
+    const done = ap != null && hp != null;
+    const bS = snaps.find((x) => x[1] != null && x[3] != null && x[3] + x[1] !== 0 && Math.abs(x[3] + x[1]) >= sMin);
+    if (bS) {
+      const [t, spread, , pm] = bS;
+      const home_ = pm + spread > 0;
+      const lineBet = home_ ? spread : -spread, lineClose = close[1] == null ? null : home_ ? close[1] : -close[1];
+      const res = done ? hp - ap + spread : null;
+      picks.push({ date, away, home, ap, hp, kind: "spread", edge: Math.abs(pm + spread), t,
+        pick: `${home_ ? home : away} ${signed(lineBet)}`, model: home_ ? `${home} ${signedM(-pm)}` : `${away} ${signedM(pm)}`,
+        closeText: lineClose == null ? null : signed(lineClose),
+        clv: close !== bS && lineClose != null ? lineBet - lineClose : null,
+        out: !done ? "pending" : res === 0 ? "push" : (res > 0) === home_ ? "win" : "loss" });
+    }
+    const bT = snaps.find((x) => x[2] != null && x[4] != null && x[4] !== x[2] && Math.abs(x[4] - x[2]) >= tMin);
+    if (bT) {
+      const [t, , total, , pt] = bT;
+      const over = pt > total;
+      const res = done ? ap + hp - total : null;
+      picks.push({ date, away, home, ap, hp, kind: "total", edge: Math.abs(pt - total), t,
+        pick: `${over ? "Over" : "Under"} ${line(total)}`, model: `Model ${fmt(pt)}`,
+        closeText: close[2] == null ? null : line(close[2]),
+        clv: close !== bT && close[2] != null ? (over ? close[2] - total : total - close[2]) : null,
+        out: !done ? "pending" : res === 0 ? "push" : (res > 0) === over ? "win" : "loss" });
+    }
+  }
+  return picks;
+}
+const picksFor = (src, sMin, tMin) => (src.live ? liveGrade(src.rows, sMin, tMin) : grade(src.rows, sMin, tMin));
+
+function clvStats(picks) {
+  const c = picks.filter((p) => p.clv != null);
+  if (!c.length) return null;
+  return { n: c.length, avg: c.reduce((s, p) => s + p.clv, 0) / c.length,
+           better: c.filter((p) => p.clv > 0).length / c.length, worse: c.filter((p) => p.clv < 0).length / c.length };
+}
+
 const signedM = (n) => (n > 0 ? `+${fmt(n)}` : fmt(n));
 const signed = (n) => (n > 0 ? `+${line(n)}` : n === 0 ? "PK" : line(n));
 const units = (p) => (p.out === "win" ? 100 / 110 : p.out === "loss" ? -1 : 0);
@@ -553,7 +691,7 @@ const units = (p) => (p.out === "win" ? 100 / 110 : p.out === "loss" ? -1 : 0);
 function record(picks) {
   const w = picks.filter((p) => p.out === "win").length;
   const l = picks.filter((p) => p.out === "loss").length;
-  const pu = picks.length - w - l;
+  const pu = picks.filter((p) => p.out === "push").length;
   const u = picks.reduce((s, p) => s + units(p), 0);
   return { w, l, pu, n: w + l, pct: w + l ? w / (w + l) : null, u };
 }
@@ -570,8 +708,9 @@ function renderHistory() {
     src = saved || (list[0].rows.length >= 30 ? list[0] : list[1] || list[0]);
   }
   hist.source = src.id;
-  const picks = grade(src.rows);
-  const sp = picks.filter((p) => p.kind === "spread"), tp = picks.filter((p) => p.kind === "total");
+  const picks = picksFor(src);
+  const graded = picks.filter((p) => p.out !== "pending");
+  const sp = graded.filter((p) => p.kind === "spread"), tp = graded.filter((p) => p.kind === "total");
   const rs = record(sp), rt = record(tp);
   const sMin = Number($("spreadMin").value) || 0, tMin = Number($("totalMin").value) || 0;
 
@@ -590,13 +729,14 @@ function renderHistory() {
       <div class="big">${r.w}–${r.l}${r.pu ? `–${r.pu}` : ""}</div>
       <p><strong>${pctText(r.pct)}</strong> wins · <strong>${uText(r.u)}</strong> at -110</p>
       <p>52.4% breaks even.</p></div>`;
-    body = `<div class="cards">${card("Spreads", "--s1", rs, sMin)}${card("Totals", "--s2", rt, tMin)}</div>
+    body = (src.live ? clvHTML(picks) : "") +
+      `<div class="cards">${card("Spreads", "--s1", rs, sMin)}${card("Totals", "--s2", rt, tMin)}</div>
       ${chartHTML(sp, tp)}
-      ${bucketHTML(src.rows)}
-      ${picksHTML(picks)}`;
+      ${bucketHTML(src)}
+      ${picksHTML(picks, src.live)}`;
   }
   const caveat = src.id === "live"
-    ? "Graded from the board's last saved number before each game, against the median line across books at that moment, which is close to what you could have bet."
+    ? "Each pick is graded at the first saved line where the game reached the Green Zone (when you'd have bet), using the median line across books. Line value compares that number with the last line saved before tip-off."
     : `Replay: the model's pre-game number for every game, trained only on earlier seasons, against ${esc(hist.data.replay?.source || "closing lines")}. Closing lines are the hardest version of the line to beat.${sport === "nba" ? " Injury adjustments use who actually sat, so the replay knows slightly more than the board did at the time." : ""}`;
   $("history").innerHTML = seg + body + `<p class="caveat">${caveat} Change the Green Zone numbers above to regrade.</p>`;
 
@@ -606,6 +746,17 @@ function renderHistory() {
   const more = $("morePicks");
   if (more) more.addEventListener("click", () => { hist.shown += 60; renderHistory(); });
   wireChart(sp, tp);
+}
+
+function clvHTML(picks) {
+  const cs = clvStats(picks.filter((p) => p.kind === "spread")), ct = clvStats(picks.filter((p) => p.kind === "total"));
+  const card = (title, color, c, unit) => `<div class="card">
+    <h3><span class="key" style="background:var(${color})"></span>${title}: line value</h3>
+    ${c ? `<div class="big">${c.avg >= 0 ? "+" : "−"}${fmt(Math.abs(c.avg), 2)} ${unit}</div>
+      <p>Better number than the close on <strong>${Math.round(c.better * 100)}%</strong> of ${c.n} picks, worse on ${Math.round(c.worse * 100)}%.</p>`
+    : `<div class="big">–</div><p>Needs picks with two saved lines: tap Capture odds now in the morning, and the board saves another before tip-off.</p>`}</div>`;
+  return `<div class="cards">${card("Spreads", "--s1", cs, "pts")}${card("Totals", "--s2", ct, "pts")}</div>
+    <p class="caveat" style="margin-top:6px">Closing line value is the fastest honest test of an edge: a consistently positive number over a few hundred picks matters more than the win-loss record.</p>`;
 }
 
 // Cumulative units by date, one line per market.
@@ -698,9 +849,9 @@ function niceStep(raw) {
 }
 
 // Does a bigger edge win more often? Every game, bucketed by edge size.
-function bucketHTML(rows) {
+function bucketHTML(src) {
   const B = BUCKETS[sport];
-  const all = grade(rows, 0, 0);
+  const all = picksFor(src, 0, 0).filter((p) => p.out !== "pending");
   const rowsFor = (kind, cuts) => cuts.map((c, i) => {
     const hi = cuts[i + 1];
     const r = record(all.filter((p) => p.kind === kind && p.edge >= c && (hi == null || p.edge < hi)));
@@ -719,7 +870,7 @@ function bucketHTML(rows) {
     <tbody>${body}</tbody></table></div>`;
 }
 
-function picksHTML(picks) {
+function picksHTML(picks, live = false) {
   if (!picks.length) return `<div class="empty"><p>No picks at these Green Zone numbers.</p></div>`;
   const sorted = [...picks].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.kind < b.kind ? -1 : 1));
   const shown = sorted.slice(0, hist.shown);
@@ -729,10 +880,13 @@ function picksHTML(picks) {
       day = p.date;
       html += `<h2 style="margin:16px 0 0;font-size:1.05rem">${new Date(day + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</h2>`;
     }
-    const icon = p.out === "win" ? "✓ Win" : p.out === "loss" ? "✗ Loss" : "– Push";
-    const final = p.kind === "total"
+    const icon = p.out === "win" ? "✓ Win" : p.out === "loss" ? "✗ Loss" : p.out === "pending" ? "… Pending" : "– Push";
+    let final = p.out === "pending" ? "Awaiting final score" : p.kind === "total"
       ? `Final ${p.ap + p.hp} (${p.away} ${p.ap}, ${p.home} ${p.hp})`
       : `Final ${p.away} ${p.ap}, ${p.home} ${p.hp}`;
+    if (live && p.closeText != null) {
+      final = `Bet ${timeLabel(p.t)}, closed ${esc(p.closeText)}${p.clv != null ? ` (${p.clv >= 0 ? "+" : "−"}${fmt(Math.abs(p.clv))} line value)` : ""} · ${final}`;
+    }
     html += `<div class="pick"><div class="what">${esc(p.pick)} <span class="muted" style="font:500 .85rem var(--body)">${esc(p.away)} at ${esc(p.home)}</span></div>
       <div class="res ${p.out}">${icon}</div>
       <div class="why">Model ${p.kind === "total" ? esc(p.model.replace("Model ", "")) : esc(p.model)} · edge ${fmt(p.edge)} · ${final}</div></div>`;
