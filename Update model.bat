@@ -49,7 +49,7 @@ set /p MODEL_SECRET=<model_secret.txt
 rem ---- Install packages (fast after the first time) ----
 echo.
 echo Getting ready. The first run takes a minute or two...
-%PY% -m pip install --quiet --disable-pip-version-check nba_api pandas numpy scikit-learn requests
+%PY% -m pip install --quiet --disable-pip-version-check pandas numpy pyarrow scikit-learn requests
 if errorlevel 1 (
   echo Package install failed. Check your internet connection and try again.
   pause
@@ -58,9 +58,9 @@ if errorlevel 1 (
 
 rem ---- Train and upload ----
 echo.
-echo Pulling NBA games and training the model. This takes a few minutes...
+echo Pulling NBA box scores and training the model. This takes a minute or two...
 echo.
-%PY% model\nba_model_v1.py
+%PY% model\nba_model.py
 echo.
 echo Done. If you see "Upload: 200" above, refresh your site.
 echo To change your site address or secret, delete board_url.txt or model_secret.txt and run this again.

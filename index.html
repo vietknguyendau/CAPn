@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NBA line board</title>
+<title>Line board</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏀</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,6 +39,10 @@ main { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
 h1 { font: 700 2.6rem/1 var(--display); margin: 0 0 6px; letter-spacing: .01em; }
 .status { color: var(--steel); margin: 0; font-size: .95rem; }
 .status strong { color: var(--ink); font-weight: 500; }
+.tabs { display: flex; gap: 6px; margin: 0 0 14px; }
+.tabs button { background: transparent; color: var(--steel); border: 1px solid var(--rule); font: 700 1.05rem/1 var(--display);
+  letter-spacing: .04em; padding: 8px 16px; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 20px 0 8px; }
 fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 14px; }
 legend { font-weight: 600; font-size: .9rem; padding: 0; margin-bottom: 4px; }
@@ -99,7 +103,11 @@ footer a { color: var(--ink); }
 </head>
 <body>
 <main>
-  <h1>NBA line board</h1>
+  <div class="tabs" role="group" aria-label="Sport">
+    <button type="button" data-sport="nba" aria-pressed="true">NBA</button>
+    <button type="button" data-sport="nfl" aria-pressed="false">NFL</button>
+  </div>
+  <h1 id="title">NBA line board</h1>
   <p class="status" id="status">Loading the board…</p>
 
   <div class="controls">
@@ -119,28 +127,62 @@ footer a { color: var(--ink); }
 
   <footer>
     <p>Lines are the median across US books. The bar shows the gap between the market (tick) and the model (dot).</p>
-    <p>Amber means check the news before betting: a player averaging 24+ minutes is out, doubtful or questionable, or the model is 6+ points off the spread or 9+ off the total. Bold names are key players. Injuries come from ESPN.</p>
+    <p id="amberInfo"></p>
     <p id="injInfo"></p>
     <p id="modelInfo"></p>
-    <p><a href="/api/export">Download line history (CSV)</a></p>
+    <p><a id="exportLink" href="/api/export">Download line history (CSV)</a></p>
   </footer>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
 let data = null;
-const BIG_SPREAD = 6;  // edges this big usually mean the market knows something
-const BIG_TOTAL = 9;
+// Per-sport settings. "big" edges usually mean the market knows something the model doesn't.
+const SPORT = {
+  nba: { name: "NBA", spread: "2.5", total: "4", bigSpread: 6, bigTotal: 9,
+    amber: "The model's number already subtracts players listed Out, and half of anyone Questionable. The points next to each name are what the model thinks he's worth. Amber means check the news before betting: a key player (worth 2.5+ points) is questionable or doubtful, or the model is 6+ points off the spread or 9+ off the total. Injuries come from ESPN.",
+    empty: "Lines usually post the day before tip-off.",
+    noModel: "The NBA model updates itself on GitHub. Open your repo's Actions tab and run NBA model once to get started." },
+  nfl: { name: "NFL", spread: "2", total: "3", bigSpread: 4, bigTotal: 6,
+    amber: "Amber means check the news before betting: the starting QB is out, doubtful or questionable, two or more starters are out or doubtful, or the model is 4+ points off the spread or 6+ off the total. Only starters are listed (from recent snap counts). Injuries come from ESPN.",
+    empty: "NFL lines for next week usually post Sunday night.",
+    noModel: "The NFL model updates itself on GitHub. Open your repo's Actions tab and run NFL model once to get started." },
+};
+let sport = "nba";
+let loadToken = 0;
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
-$("spreadMin").value = store.get("spreadMin", "2.5");
-$("totalMin").value = store.get("totalMin", "4");
-for (const id of ["spreadMin", "totalMin"]) {
-  $(id).addEventListener("input", () => { store.set(id, $(id).value); render(); });
+// NBA keeps its original saved keys; NFL thresholds are saved separately.
+const sk = (id) => (sport === "nba" ? id : `${sport}:${id}`);
+function applySport() {
+  const S = SPORT[sport];
+  $("title").textContent = `${S.name} line board`;
+  document.title = `${S.name} line board`;
+  $("spreadMin").value = store.get(sk("spreadMin"), S.spread);
+  $("totalMin").value = store.get(sk("totalMin"), S.total);
+  $("amberInfo").textContent = S.amber;
+  $("exportLink").href = `/api/export?sport=${sport}`;
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sport === sport)));
 }
+for (const id of ["spreadMin", "totalMin"]) {
+  $(id).addEventListener("input", () => { store.set(sk(id), $(id).value); render(); });
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  if (b.dataset.sport === sport) return;
+  sport = b.dataset.sport;
+  store.set("sport", sport);
+  try { history.replaceState(null, "", `#${sport}`); } catch {}
+  data = null;
+  $("board").innerHTML = "";
+  $("modelInfo").textContent = "";
+  $("injInfo").textContent = "";
+  $("status").textContent = "Loading the board…";
+  applySport();
+  load();
+}));
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = (n, d = 1) => (n == null ? "–" : Number(n).toFixed(d).replace(/\.0$/, ""));
@@ -183,13 +225,16 @@ function gameHTML(g) {
 
   // Caution: a key player is out or uncertain, or the model is far from the market.
   const inj = g.injuries || { home: [], away: [] };
-  const keyHurt = [...inj.home, ...inj.away].some((x) => x.key);
+  // NBA players with values are already priced in when Out, so only uncertainty triggers amber.
+  const valued = [...inj.home, ...inj.away].some((x) => x.impact != null);
+  const keyHurt = [...inj.home, ...inj.away].some((x) => x.key && (!valued || x.level !== "out"));
   const sEdge = p && g.spread_home != null ? p.margin + g.spread_home : 0;
   const tEdge = p && g.total != null ? p.total - g.total : 0;
-  const bigGap = Math.abs(sEdge) >= BIG_SPREAD || Math.abs(tEdge) >= BIG_TOTAL;
+  const S = SPORT[sport];
+  const bigGap = Math.abs(sEdge) >= S.bigSpread || Math.abs(tEdge) >= S.bigTotal;
   const caution = !started && p && (keyHurt || bigGap);
   const reasons = [];
-  if (keyHurt) reasons.push("key player out or questionable");
+  if (keyHurt) reasons.push(valued ? "key player questionable" : "key player out or questionable");
   if (bigGap) reasons.push("model far from market");
 
   const openS = `<span class="small">${g.open_spread != null && g.open_spread !== g.spread_home ? `Market, open ${spreadText(g, g.open_spread)}` : "Market"}</span>`;
@@ -199,10 +244,20 @@ function gameHTML(g) {
     sub = "In progress. Live lines are hidden.";
   } else if (p) {
     const notes = [];
-    if (p.rest_home === 1) notes.push(`${g.home_abbr} on a back-to-back`);
-    if (p.rest_away === 1) notes.push(`${g.away_abbr} on a back-to-back`);
+    if (sport === "nba") notes.push(...travelNotes(g, p));
+    const longB2B = (ab) => notes.some((n) => n.startsWith(`${ab} long flight`));
+    if (p.rest_home === 1 && !longB2B(g.home_abbr)) notes.push(`${g.home_abbr} on a back-to-back`);
+    if (p.rest_away === 1 && !longB2B(g.away_abbr)) notes.push(`${g.away_abbr} on a back-to-back`);
     if (p.g3_home) notes.push(`${g.home_abbr} 3rd game in 4 nights`);
     if (p.g3_away) notes.push(`${g.away_abbr} 3rd game in 4 nights`);
+    if (p.g4_home && !p.g3_home) notes.push(`${g.home_abbr} 4th game in 6 nights`);
+    if (p.g4_away && !p.g3_away) notes.push(`${g.away_abbr} 4th game in 6 nights`);
+    if (sport === "nfl") {
+      for (const [ab, r] of [[g.home_abbr, p.home_rest], [g.away_abbr, p.away_rest]]) {
+        if (r >= 10) notes.push(`${ab} off a bye`);
+        else if (r != null && r <= 5) notes.push(`${ab} on a short week`);
+      }
+    }
     sub = notes.join(", ");
   } else {
     sub = "No model numbers for this matchup yet.";
@@ -234,16 +289,19 @@ function gameHTML(g) {
   }
 
   const injHTML = started ? "" : [["away", g.away_abbr], ["home", g.home_abbr]].map(([side, ab]) => {
-    const list = (inj[side] || []).filter((x) => !x.longTerm);
+    let list = (inj[side] || []).filter((x) => !x.longTerm);
+    // NFL injury reports are long: show QBs, key players and anyone out or doubtful.
+    if (sport === "nfl") list = list.filter((x) => x.key || x.role === "QB1" || x.level !== "questionable" || x.role == null);
     if (!list.length) return "";
     const items = list.map((x) => {
       const lvl = x.level === "out" ? "Out" : x.level === "doubtful" ? "Doubtful" : "Questionable";
       const nm = x.key ? `<b>${esc(x.name)}</b>` : esc(x.name);
-      const min = x.mpg != null ? ` ${fmt(x.mpg, 0)} min` : "";
+      const min = x.impact != null ? ` ${fmt(x.impact)} pts`
+        : x.mpg != null ? ` ${fmt(x.mpg, 0)} min` : x.pos ? ` ${esc(x.pos)}` : "";
       return `${nm}${min} <span class="lvl-${x.level}">${lvl}</span>`;
     }).join(" · ");
     return `<p class="inj">${esc(ab)}: ${items}</p>`;
-  }).join("");
+  }).join("") + (p && !started && (Math.abs(p.inj_margin || 0) >= 0.1 || Math.abs(p.inj_total || 0) >= 0.1) ? injAdjText(g, p) : "");
 
   const cls = caution && hot ? " caution" : hot ? " hot" : "";
   return `<article class="game${cls}">
@@ -259,11 +317,33 @@ function gameHTML(g) {
   </article>`;
 }
 
+// Schedule spots worth knowing (travel, time zones, altitude, road trips).
+function travelNotes(g, p) {
+  const out = [];
+  const ord = (n) => (n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`);
+  if (p.trip_away >= 3) out.push(`${g.away_abbr} ${ord(p.trip_away)} straight road game`);
+  for (const [ab, kmv, tzv, rest] of [[g.home_abbr, p.km_home, p.tz_home, p.rest_home], [g.away_abbr, p.km_away, p.tz_away, p.rest_away]]) {
+    if (tzv >= 2) out.push(`${ab} flew ${tzv} time zones east`);
+    if (rest === 1 && kmv >= 1500) out.push(`${ab} long flight on a back-to-back`);
+  }
+  if (p.altitude) out.push(`${g.away_abbr} playing at altitude`);
+  return out;
+}
+
+function injAdjText(g, p) {
+  const parts = [];
+  if (Math.abs(p.inj_margin) >= 0.1) {
+    parts.push(`moved the spread ${fmt(Math.abs(p.inj_margin))} toward ${p.inj_margin > 0 ? g.home_abbr : g.away_abbr}`);
+  }
+  if (Math.abs(p.inj_total) >= 0.1) parts.push(`the total ${p.inj_total < 0 ? "down" : "up"} ${fmt(Math.abs(p.inj_total))}`);
+  return `<p class="inj">Injuries ${parts.join(" and ")}.</p>`;
+}
+
 function render() {
   if (!data) return;
   const games = [...data.games].sort((a, b) => Date.parse(a.commence_time) - Date.parse(b.commence_time));
   if (!games.length) {
-    $("board").innerHTML = `<div class="empty"><p><strong>No NBA games on the board right now.</strong></p><p>Lines usually post the day before tip-off. Check back later or tap Capture odds now.</p></div>`;
+    $("board").innerHTML = `<div class="empty"><p><strong>No ${SPORT[sport].name} games on the board right now.</strong></p><p>${SPORT[sport].empty} Check back later or tap Capture odds now.</p></div>`;
     return;
   }
   let html = "", day = "";
@@ -273,32 +353,32 @@ function render() {
     html += gameHTML(g);
   }
   if (!data.model) {
-    html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>Double-click Update model on your computer to add model numbers and edges. Market lines are below.</p></div>` + html;
+    html = `<div class="empty"><p><strong>No model uploaded yet.</strong></p><p>${SPORT[sport].noModel} Market lines are below.</p></div>` + html;
   }
   $("board").innerHTML = html;
 }
 
 async function load(refresh = false) {
+  const token = ++loadToken;
   $("capture").disabled = true;
   try {
-    const r = await fetch(`/api/board${refresh ? "?refresh=1" : ""}`);
+    const r = await fetch(`/api/board?sport=${sport}${refresh ? "&refresh=1" : ""}`);
     const j = await r.json();
+    if (token !== loadToken) return; // user switched sports meanwhile
     if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
     data = j;
     const left = j.remaining != null ? ` <strong>${esc(j.remaining)}</strong> Odds API requests left this month.` : "";
     $("status").innerHTML = `Odds captured <strong>${ago(j.captured_at)}</strong>.${left}`;
     $("note").innerHTML = j.note ? `<p class="note">${esc(j.note)}</p>` : "";
     const m = j.model;
-    $("modelInfo").textContent = m
-      ? `Model uploaded ${ago(m.uploaded_at)}, with games through ${m.trained_through}.` +
-        (m.test?.margin ? ` On ${m.test.margin.season}, margin error was ${fmt(m.test.margin.mae)} points vs ${fmt(m.test.margin.baseline_mae)} for a no-skill guess.` : "")
-      : "";
+    $("modelInfo").textContent = m ? modelText(m) : "";
     $("injInfo").textContent = j.injuries_error
       ? `Injuries: ${j.injuries_error}`
       : j.injuries_at ? `Injury report checked ${ago(j.injuries_at)}.` +
-        (j.has_minutes ? "" : " Run Update model once so the board knows which players are key.") : "";
+        (j.has_minutes ? "" : sport === "nba" ? " Run the NBA model once (Actions tab on GitHub) so the board knows who's key." : "") : "";
     render();
   } catch (e) {
+    if (token !== loadToken) return;
     $("status").textContent = "The board couldn't load.";
     $("note").innerHTML = `<p class="note">${esc(e.message)}</p>`;
   } finally {
@@ -306,6 +386,25 @@ async function load(refresh = false) {
   }
 }
 
+function modelText(m) {
+  let t = `Model updated ${ago(m.uploaded_at)}, with games through ${m.trained_through}.`;
+  const mg = m.test?.margin;
+  if (!mg) return t;
+  t += ` On ${mg.season}, its margin error was ${fmt(mg.mae)} points vs ${fmt(mg.baseline_mae)} for a no-skill guess`;
+  if (mg.v2_mae != null) {
+    return t + `. Travel spots and player values cut it from ${fmt(mg.v2_mae, 2)} to ${fmt(mg.mae, 2)}.`;
+  }
+  if (mg.market_mae != null) {
+    t += ` and ${fmt(mg.market_mae)} for the closing line.`;
+    const a = mg.ats?.["2"];
+    if (a) t += ` Betting its 2+ point edges against the close won ${(a.win * 100).toFixed(1)}% of ${a.n} games; 52.4% breaks even.`;
+  } else t += ".";
+  return t;
+}
+
+const start = (location.hash || "").slice(1) || store.get("sport", "nba");
+sport = SPORT[start] ? start : "nba";
+applySport();
 $("capture").addEventListener("click", () => load(true));
 load();
 </script>

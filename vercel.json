@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/capture", "schedule": "0 22 * * *" }
+    { "path": "/api/capture", "schedule": "0 22 * * *" },
+    { "path": "/api/capture-nfl", "schedule": "0 16 * * 0,1,4" }
   ]
 }

@@ -1,9 +1,10 @@
-import { redis, pipeline } from "./_lib.js";
+import { redis, pipeline, sportFrom, k } from "./_lib.js";
 
-// GET /api/export -> CSV of every saved line snapshot, with the model's numbers at that moment.
+// GET /api/export?sport=nba|nfl -> CSV of every saved line snapshot, with the model's numbers at that moment.
 export default async function handler(req, res) {
   try {
-    const ids = (await redis("SMEMBERS", "games:all")) || [];
+    const sport = sportFrom(req);
+    const ids = (await redis("SMEMBERS", k(sport, "games:all"))) || [];
     const metas = await pipeline(ids.map((id) => ["GET", `game:${id}`]));
     const snaps = await pipeline(ids.map((id) => ["LRANGE", `snaps:${id}`, 0, -1]));
     const rows = ["game_id,commence_time,home,away,captured_at,spread_home,total,model_margin,model_total"];
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
       }
     });
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=nba_line_snapshots.csv");
+    res.setHeader("Content-Disposition", `attachment; filename=${sport.id}_line_snapshots.csv`);
     res.send(rows.join("\n"));
   } catch (e) {
     res.status(500).json({ error: e.message });

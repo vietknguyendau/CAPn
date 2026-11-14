@@ -1,11 +1,11 @@
-# NBA line board
+# Line board (NBA + NFL)
 
-Live NBA spreads and totals from The Odds API, compared against your own model, with every line snapshot saved so you can track line movement and closing line value.
+Live NBA and NFL spreads and totals from The Odds API, compared against your own model, with every line snapshot saved so you can track line movement and closing line value.
 
 ## What runs where
 
 - **Vercel (the website):** pulls odds, saves snapshots to Redis, does the model math, shows the board.
-- **Your computer:** `model/nba_model_v1.py` trains the model on nba_api data and uploads it to the site. (stats.nba.com blocks cloud servers, so this part can't run on Vercel.)
+- **GitHub Actions:** `model/nba_model.py` and `model/nfl_model.py` retrain on a schedule and upload to the site. Both data sources (ESPN box scores via sportsdataverse, and nflverse) are hosted on GitHub.
 
 ## Setup
 
@@ -31,16 +31,14 @@ Sign up at the-odds-api.com. The free plan works to start. Copy your API key.
 
 The code accepts either `KV_REST_API_URL`/`KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`, so either naming works.
 
-### 5. Upload the model
-On your computer:
-```
-pip install nba_api pandas numpy scikit-learn requests
-```
-Open `model/nba_model_v1.py`, set `BOARD_URL` to your Vercel URL, then run:
-```
-python model/nba_model_v1.py
-```
-Paste your `MODEL_SECRET` when asked. Re-run every day or two to keep team ratings current.
+### 5. Turn on automatic model updates
+1. Make sure the `.github` folder was uploaded: `.github/workflows/nba-model.yml` and `nfl-model.yml` should show in the repo.
+2. Repo → Settings → Secrets and variables → Actions → New repository secret. Add:
+   - `BOARD_URL`: your site address, like `https://nba-board.vercel.app`
+   - `MODEL_SECRET`: the same password as in Vercel
+3. Actions tab → "NBA model" → Run workflow (and the same for "NFL model"). A green check means it uploaded.
+
+After that, the NBA model updates at 9 AM and 3 PM Central every day, and the NFL model Monday, Tuesday and Friday mornings. `Update model.bat` still works as a manual backup on Windows.
 
 ## How odds get captured
 - Opening the board captures fresh odds if the last capture is over 30 minutes old (`STALE_MINUTES` env var changes this).
@@ -48,12 +46,24 @@ Paste your `MODEL_SECRET` when asked. Re-run every day or two to keep team ratin
 - A daily cron at 22:00 UTC (about 2 hours before most tip-offs) captures a near-closing line, even if you don't open the site.
 - Each capture uses 2 Odds API requests (spreads + totals, US books). The board shows how many you have left.
 
-## Injuries, rest and early-season ratings (v2)
-- Injuries come from ESPN's public injury feed (no key needed), checked at most every 20 minutes. It's unofficial, so it can change without notice.
-- Player minutes come from the model upload, so the board knows who matters: 24+ minutes a game is a key player. Players who have missed most of the season are skipped, since the team's ratings already reflect their absence.
-- A game turns amber ("Check news") when a key player is out, doubtful or questionable, or the model is 6+ points off the spread or 9+ off the total.
-- The model blends last season's ratings into this season's, fading them out as games pile up, and adds a "3rd game in 4 nights" factor.
+## NBA model (v3)
+- **Ratings:** offensive, defensive and net rating per 100 possessions, season-to-date and last 10 games, blended with last season's early on.
+- **Rest and schedule:** back-to-backs, 3 games in 4 nights, 4 games in 6 nights.
+- **Travel:** distance flown since the last game, time zones crossed going east, the away team's road-trip length, and altitude (Denver, Utah).
+- **Player values:** each player's game score above a replacement player, per game, learned against real results. When ESPN lists a player Out, the board subtracts his value from the model's number (half for Questionable, most of it for Doubtful). A player who has sat most recent games is already in the team's ratings, so he counts less.
+- **Amber ("Check news"):** a key player (worth 2.5+ points) is questionable or doubtful, or the model is 6+ off the spread or 9+ off the total.
+
+Backtest on 2023-24 through 2025-26 (3,701 games), margin error: v2 11.10, v3 11.06; games with a big injury: 12.15 to 11.75. Totals: 15.64 to 15.59, mostly from altitude. Travel alone barely moved spreads, since rest already captures most of it. These measure accuracy against results, not against betting lines.
+
+Limits: box-score values undersell defense-first players, so no player's absence is allowed to help his team. ESPN's injury feed and the sportsdataverse box scores are unofficial and can change without notice; the footer shows when the model last updated.
+
+## NFL
+The NFL tab works like the NBA one. Its model retrains Monday, Tuesday and Friday mornings (setup in step 5).
+
+Honest backtest: on 2022–2025, the model's 2+ point edges against the closing line won about 49–51% of the time, below the 52.4% needed at -110. Public play-by-play data is already priced into NFL lines. Use the NFL board as a sanity check and for line movement, not as a source of picks. The site footer shows the latest backtest after each run.
+
+Odds API: the NFL board captures at most every 2 hours when opened, plus Sunday, Monday and Thursday mornings automatically.
 
 ## Data
-- `/api/export` downloads every snapshot as CSV: line, total, and the model's numbers at that moment. The first snapshot per game is the open; the last pre-game snapshot is your closing line.
+- `/api/export?sport=nba` (or `nfl`) downloads every snapshot as CSV: line, total, and the model's numbers at that moment. The first snapshot per game is the open; the last pre-game snapshot is your closing line.
 - `/api/model` shows when the model was last uploaded.
