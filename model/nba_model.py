@@ -11,6 +11,7 @@ Runs automatically on GitHub (see .github/workflows/nba-model.yml).
 To run it by hand:  pip install pandas numpy pyarrow scikit-learn requests
                     python model/nba_model.py
 """
+import concurrent.futures as cf
 import io
 import json
 import math
@@ -40,6 +41,10 @@ RATINGS = ["ORTG", "DRTG", "NET", "PACE"]
 K_MIN = 300        # a player's last season counts like this many minutes of this season
 K_GP = 5           # ...and like this many games for minutes per game
 AVAIL_WINDOW = 10  # "recently available" = share of the team's last 10 games he played
+
+# Closing lines: DraftKings, as saved in ESPN's game files (hosted on GitHub by sportsdataverse).
+GAME_JSON = "https://raw.githubusercontent.com/sportsdataverse/hoopR-nba-raw/main/nba/json/final/{}.json"
+LINES_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "nba_lines.json")
 
 # ESPN abbreviations -> the ones the website uses.
 SITE = {"GS": "GSW", "SA": "SAS", "NY": "NYK", "NO": "NOP", "UTAH": "UTA", "WSH": "WAS"}
@@ -324,6 +329,77 @@ def current_teams(tg, season):
     return out
 
 
+# ---------- 6. History: replay the model against closing lines ----------
+def fetch_line(gid):
+    """Returns [home spread, total], [] if the game has no line, or None on a network error."""
+    try:
+        r = requests.get(GAME_JSON.format(gid), timeout=60)
+        if r.status_code == 404:
+            return gid, []
+        r.raise_for_status()
+        pc = r.json().get("pickcenter") or []
+        for x in sorted(pc, key=lambda x: (x.get("provider") or {}).get("priority", 99)):
+            if x.get("spread") is not None or x.get("overUnder") is not None:
+                return gid, [x.get("spread"), x.get("overUnder")]
+        return gid, []
+    except Exception:
+        return gid, None
+
+
+def closing_lines(game_ids):
+    try:
+        with open(LINES_CACHE) as fh:
+            cache = json.load(fh)
+    except Exception:
+        cache = {}
+    todo = [str(g) for g in game_ids if str(g) not in cache]
+    if todo:
+        print(f"Fetching closing lines for {len(todo)} games...")
+        with cf.ThreadPoolExecutor(16) as ex:
+            for gid, v in ex.map(fetch_line, todo):
+                if v is not None:
+                    cache[gid] = v
+        os.makedirs(os.path.dirname(LINES_CACHE), exist_ok=True)
+        with open(LINES_CACHE, "w") as fh:
+            json.dump(cache, fh, separators=(",", ":"))
+    return cache
+
+
+HIST_COLS = ["date", "away", "home", "spread", "total", "pm", "pt", "away_pts", "home_pts"]
+
+
+def history(games, season, first):
+    """For last season and this one: the model's pre-game number for every game, trained only on
+    earlier seasons, next to the closing line and the final score."""
+    out = []
+    want = games[games.SEASON_H >= season - 1]
+    lines = closing_lines(want.index.tolist())
+    for S in [season - 1, season]:
+        tr, te = games[(games.SEASON_H < S) & (games.SEASON_H > first)], games[games.SEASON_H == S]
+        if tr.empty or te.empty:
+            continue
+        pm = Ridge(alpha=1.0).fit(tr[MARGIN_FEATS], tr.MARGIN).predict(te[MARGIN_FEATS])
+        pt = Ridge(alpha=1.0).fit(tr[TOTAL_FEATS], tr.TOTAL).predict(te[TOTAL_FEATS])
+        rows = []
+        for (gid, r), m, t in zip(te.iterrows(), pm, pt):
+            ln = lines.get(str(gid)) or []
+            if not ln or ln[0] is None:
+                continue
+            rows.append([r.GAME_DATE_H.strftime("%Y-%m-%d"), r.TEAM_A, r.TEAM_H, ln[0], ln[1],
+                         round(float(m), 2), round(float(t), 2), int(r.PTS_A), int(r.PTS_H)])
+        rows.sort(key=lambda x: x[0])
+        out.append({"label": f"{S - 1}-{S - 2000:02d}", "rows": rows})
+        print(f"History {S - 1}-{S - 2000:02d}: {len(rows)} games with closing lines.")
+    return {"source": "DraftKings closing lines, via ESPN", "cols": HIST_COLS, "seasons": out}
+
+
+def recent_results(games, days=30):
+    newest = games.GAME_DATE_H.max()
+    r = games[games.GAME_DATE_H >= newest - pd.Timedelta(days=days)]
+    return [[d.strftime("%Y-%m-%d"), a, h, int(pa), int(ph)]
+            for d, a, h, pa, ph in zip(r.GAME_DATE_H, r.TEAM_A, r.TEAM_H, r.PTS_A, r.PTS_H)]
+
+
 # ---------- Helpers ----------
 def norm_name(name):
     s = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode().lower()
@@ -353,7 +429,7 @@ def build(seasons):
     return tg, p, games, repl
 
 
-# ---------- 6. Train, test, upload ----------
+# ---------- 7. Train, test, upload ----------
 def main():
     season = current_season()
     seasons = list(range(season - N_SEASONS, season + 1))
@@ -385,6 +461,8 @@ def main():
         payload[target.lower()] = {"intercept": final.intercept_, "features": feats, "coefs": list(final.coef_)}
         coefs["margin" if target == "MARGIN" else "total"] = c["D_MISS_VAL" if target == "MARGIN" else "S_MISS_VAL"]
 
+    payload["history"] = history(games, season, seasons[0])
+    payload["results"] = recent_results(games)
     payload["teams"] = current_teams(tg, season)
     payload["players"] = current_players(p, season, repl, coefs)
     payload = clean(payload)

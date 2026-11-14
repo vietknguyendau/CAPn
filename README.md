@@ -64,6 +64,15 @@ Honest backtest: on 2022–2025, the model's 2+ point edges against the closing 
 
 Odds API: the NFL board captures at most every 2 hours when opened, plus Sunday, Monday and Thursday mornings automatically.
 
+## History tab
+Each sport has a **History** view (top right), graded at whatever Green Zone numbers you set:
+- **Board picks (live):** the board's last saved number before each game, against the median line at that moment. Graded once final scores arrive with the next model run. This is the honest record of what the board told you.
+- **Replay (this season and last):** the model's pre-game number for every game, trained only on earlier seasons, against closing lines (NBA: DraftKings via ESPN's game files, from December 2025 on; NFL: nflverse). NBA replays use who actually sat, so they know slightly more than the board did at the time.
+
+It shows the record and units at -110, a running-units chart, win rate by edge size, and every Green Zone pick with its result.
+
+`model/data/nba_lines.json` is a starter cache of closing lines; the GitHub Action keeps it current.
+
 ## Data
 - `/api/export?sport=nba` (or `nfl`) downloads every snapshot as CSV: line, total, and the model's numbers at that moment. The first snapshot per game is the open; the last pre-game snapshot is your closing line.
 - `/api/model` shows when the model was last uploaded.

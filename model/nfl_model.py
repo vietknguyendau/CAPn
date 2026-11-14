@@ -136,7 +136,9 @@ def training_rows(sched, tg):
             continue
         f = features(h, a, row)
         f.update(season=row["season"], MARGIN=row["result"], TOTAL=row["total"],
-                 spread_line=row["spread_line"], total_line=row["total_line"])
+                 spread_line=row["spread_line"], total_line=row["total_line"],
+                 gameday=row["gameday"], home=row["home_team"], away=row["away_team"],
+                 home_pts=row["home_score"], away_pts=row["away_score"])
         out.append(f)
     return pd.DataFrame(out)
 
@@ -180,6 +182,35 @@ def key_players(season):
                 out.append({"n": norm_name(player), "name": player, "t": team, "pos": pos,
                             "pct": round(float(share), 2), "role": role})
     return out
+
+
+HIST_COLS = ["date", "away", "home", "spread", "total", "pm", "pt", "away_pts", "home_pts"]
+
+
+def history(rows, season):
+    """Last season and this one: the model's pre-game number, trained only on earlier seasons,
+    next to the closing line and final score. Spread is the home team's line (-3 = home favored)."""
+    out = []
+    for S in [season - 1, season]:
+        tr, te = rows[rows.season < S], rows[(rows.season == S) & rows.spread_line.notna()]
+        if tr.empty or te.empty:
+            continue
+        pm = Ridge(alpha=1.0).fit(tr[MARGIN_FEATS], tr.MARGIN).predict(te[MARGIN_FEATS])
+        pt = Ridge(alpha=1.0).fit(tr[TOTAL_FEATS], tr.TOTAL).predict(te[TOTAL_FEATS])
+        hist = [[r.gameday, r.away, r.home, -float(r.spread_line), float(r.total_line), round(float(m), 2),
+                 round(float(t), 2), int(r.away_pts), int(r.home_pts)]
+                for r, m, t in zip(te.itertuples(), pm, pt)]
+        hist.sort(key=lambda x: x[0])
+        out.append({"label": str(S), "rows": hist})
+        print(f"History {S}: {len(hist)} games with closing lines.")
+    return {"source": "Closing lines from nflverse", "cols": HIST_COLS, "seasons": out}
+
+
+def recent_results(sched, days=30):
+    done = sched[sched.home_score.notna()].copy()
+    done["d"] = pd.to_datetime(done.gameday)
+    done = done[done.d >= done.d.max() - pd.Timedelta(days=days)]
+    return [[r.gameday, r.away_team, r.home_team, int(r.away_score), int(r.home_score)] for r in done.itertuples()]
 
 
 def clean(x):
@@ -249,6 +280,8 @@ def main():
                       "home_rest": row["home_rest"], "away_rest": row["away_rest"],
                       "home_qb": row.get("home_qb_name"), "away_qb": row.get("away_qb_name")})
     payload["predictions"] = preds
+    payload["history"] = history(rows, season)
+    payload["results"] = recent_results(sched)
     payload["teams"] = ratings
     payload["players"] = key_players(season)
     payload = clean(payload)

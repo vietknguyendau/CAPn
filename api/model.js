@@ -16,7 +16,11 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Model upload is missing ${missing.join(", ")}.` });
       }
       m.uploaded_at = new Date().toISOString();
-      await setJSON(k(sport, "model:latest"), m);
+      // History and recent scores are stored on their own so the board stays fast.
+      const { history, results, ...model } = m;
+      if (history) await setJSON(k(sport, "history:replay"), { ...history, uploaded_at: m.uploaded_at });
+      if (results) await setJSON(k(sport, "results:recent"), results);
+      await setJSON(k(sport, "model:latest"), model);
       return res.json({ ok: true, sport: sport.id, teams: Object.keys(m.teams || {}).length,
                         predictions: (m.predictions || []).length, uploaded_at: m.uploaded_at });
     }
