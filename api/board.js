@@ -1,4 +1,4 @@
-import { getJSON, captureOdds, predict, pipeline, getInjuries, getInjuryChanges, teamInjuries, newsAlerts, sportFrom, k } from "./_lib.js";
+import { getJSON, captureOdds, predict, pipeline, getInjuries, getInjuryChanges, teamInjuries, newsAlerts, confidence, sportFrom, k } from "./_lib.js";
 
 // GET /api/board?sport=nba|nfl         -> saved odds + model + injuries. Never spends Odds API requests.
 // GET /api/board?sport=nba&refresh=1   -> capture fresh odds (2 requests), at most once every 10 minutes.
@@ -38,13 +38,16 @@ export default async function handler(req, res) {
         home: teamInjuries(sport, inj, model, g.home_abbr),
         away: teamInjuries(sport, inj, model, g.away_abbr),
       };
+      const pred = model ? predict(sport, model, g, injuries) : null;
+      const news = model ? newsAlerts(sport, model, g, changes, snaps) : [];
       return {
         ...g,
         open_spread: o?.spread ?? null,
         open_total: o?.total ?? null,
-        pred: model ? predict(sport, model, g, injuries) : null,
+        pred,
         injuries,
-        news: model ? newsAlerts(sport, model, g, changes, snaps) : [],
+        news,
+        confidence: confidence(sport, g, pred, injuries, news, o?.spread ?? null),
       };
     });
 

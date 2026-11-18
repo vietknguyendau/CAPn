@@ -63,6 +63,8 @@ h1 { font: 700 2.6rem/1 var(--display); margin: 0 0 6px; letter-spacing: .01em; 
 fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 14px; }
 legend { font-weight: 600; font-size: .9rem; padding: 0; margin-bottom: 4px; }
 label { display: grid; gap: 2px; font-size: .85rem; color: var(--steel); }
+select { padding: 6px 8px; font: 500 1rem var(--body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 6px; }
 input[type=number] { width: 88px; padding: 6px 8px; font: 500 1rem var(--body); color: var(--ink);
   background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
 button { font: 600 .95rem var(--body); padding: 9px 16px; border-radius: 6px; cursor: pointer;
@@ -85,6 +87,20 @@ h2 { font: 600 1.35rem/1.2 var(--display); margin: 36px 0 4px; color: var(--stee
 .game.hot { border-left-color: var(--zone); }
 .game.caution { border-left-color: var(--warn); }
 .game.news { border-left-color: var(--s1); }
+.meter { margin: 6px 0 8px; }
+.meter summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.meter summary::-webkit-details-marker { display: none; }
+.segs { display: inline-flex; gap: 3px; }
+.segs i { width: 22px; height: 8px; border-radius: 2px; background: var(--track); }
+.segs i.on { background: var(--steel); }
+.meter.go .segs i.on { background: var(--zone); }
+.meter.caution .segs i.on { background: var(--warn); }
+.meter .lvl { font: 700 1rem/1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.meter .why { font-size: .8rem; color: var(--steel); text-decoration: underline; text-underline-offset: 2px; }
+.meter ul { list-style: none; margin: 8px 0 0; padding: 0; font-size: .86rem; display: grid; gap: 4px; }
+.meter li { display: grid; grid-template-columns: 18px 1fr; color: var(--steel); }
+.meter li.ok { color: var(--ink); }
+.meter li.ok b { color: var(--zone); }
 .newsflag { margin: 4px 0 6px; padding: 7px 10px; border-radius: 6px; font-size: .86rem;
   background: color-mix(in srgb, var(--s1) 12%, transparent); border-left: 3px solid var(--s1); }
 .newsflag b { font-weight: 700; letter-spacing: .03em; }
@@ -197,10 +213,19 @@ td { white-space: nowrap; }
   <div class="controls">
     <fieldset>
       <legend>Green Zone starts at</legend>
-      <label>Spread edge
+      <label>Confidence
+        <select id="confMin">
+          <option value="1">1+ any lean</option>
+          <option value="2">2+ Fair</option>
+          <option value="3" selected>3+ Good</option>
+          <option value="4">4+ Strong</option>
+          <option value="5">5 only</option>
+        </select>
+      </label>
+      <label class="edgeOnly">Spread edge
         <input type="number" id="spreadMin" step="0.5" min="0" value="2.5">
       </label>
-      <label>Total edge
+      <label class="edgeOnly">Total edge
         <input type="number" id="totalMin" step="0.5" min="0" value="4">
       </label>
     </fieldset>
@@ -233,11 +258,11 @@ let data = null;
 // Per-sport settings. "big" edges usually mean the market knows something the model doesn't.
 const SPORT = {
   nba: { name: "NBA", spread: "2.5", total: "4", bigSpread: 6, bigTotal: 9,
-    amber: "The model's number already subtracts players listed Out, and half of anyone Questionable. The points next to each name are what the model thinks he's worth. Amber means check the news before betting: a key player (worth 2.5+ points) is questionable or doubtful, or the model is 6+ points off the spread or 9+ off the total. Injuries come from ESPN.",
+    amber: "Green means the game reached your confidence setting: five checks (edge in a useful range, the line moving your way, unpriced injury news, a better number at some book, no key player questionable), each worth a point, minus points for warning signs. Tap Why on any game to see them. The model's number already subtracts players listed Out, and half of anyone Questionable. The points next to each name are what the model thinks he's worth. Amber means check the news before betting: a key player (worth 2.5+ points) is questionable or doubtful, or the model is 6+ points off the spread. Totals never light up: they haven't beaten closing lines in testing. Injuries come from ESPN.",
     empty: "Lines usually post the day before tip-off.",
     noModel: "The NBA model updates itself on GitHub. Open your repo's Actions tab and run NBA model once to get started." },
   nfl: { name: "NFL", spread: "2", total: "3", bigSpread: 4, bigTotal: 6,
-    amber: "Amber means check the news before betting: the starting QB is out, doubtful or questionable, two or more starters are out or doubtful, or the model is 4+ points off the spread or 6+ off the total. Only starters are listed (from recent snap counts). Injuries come from ESPN.",
+    amber: "Green means the game reached your confidence setting: five checks, each worth a point, minus points for warning signs. Tap Why on any game to see them. Amber means check the news before betting: the starting QB is out, doubtful or questionable, two or more starters are out or doubtful, or the model is 4+ points off the spread. Totals never light up: they haven't beaten closing lines in testing. Only starters are listed (from recent snap counts). Injuries come from ESPN.",
     empty: "NFL lines for next week usually post Sunday night.",
     noModel: "The NFL model updates itself on GitHub. Open your repo's Actions tab and run NFL model once to get started." },
 };
@@ -257,6 +282,7 @@ function applySport() {
   document.title = `CapNTheLines · ${$("title").textContent}`;
   $("spreadMin").value = store.get(sk("spreadMin"), S.spread);
   $("totalMin").value = store.get(sk("totalMin"), S.total);
+  $("confMin").value = store.get(sk("confMin"), "3");
   $("amberInfo").textContent = S.amber;
   $("exportLink").href = `/api/export?sport=${sport}`;
   document.querySelectorAll("[data-sport]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sport === sport)));
@@ -265,11 +291,13 @@ function applySport() {
   for (const id of ["status", "capture", "capHint", "note", "board", "boardFooter"]) $(id).hidden = hist;
   $("booksel").hidden = hist || !allBooks().length;
   $("history").hidden = !hist;
+  // Edge numbers only matter for the replay records; the board's Green Zone runs on confidence.
+  document.querySelectorAll(".edgeOnly").forEach((x) => { x.hidden = !hist; });
 }
 function setHash() {
   try { history.replaceState(null, "", `#${sport}${view === "history" ? "/history" : ""}`); } catch {}
 }
-for (const id of ["spreadMin", "totalMin"]) {
+for (const id of ["spreadMin", "totalMin", "confMin"]) {
   $(id).addEventListener("input", () => { store.set(sk(id), $(id).value); view === "history" ? renderHistory() : render(); });
 }
 document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
@@ -327,8 +355,8 @@ function track(market, model, range, inZone, warn = false) {
 
 function gameHTML(g) {
   const started = Date.parse(g.commence_time) <= Date.now();
-  const sMin = Number($("spreadMin").value) || 0;
-  const tMin = Number($("totalMin").value) || 0;
+  const confMin = Number($("confMin").value) || 3;
+  const c = g.confidence;
   const p = g.pred;
   let spreadRow, totalRow, hot = false, sub = "";
 
@@ -340,7 +368,7 @@ function gameHTML(g) {
   const sEdge = p && g.spread_home != null ? p.margin + g.spread_home : 0;
   const tEdge = p && g.total != null ? p.total - g.total : 0;
   const S = SPORT[sport];
-  const bigGap = Math.abs(sEdge) >= S.bigSpread || Math.abs(tEdge) >= S.bigTotal;
+  const bigGap = Math.abs(sEdge) >= S.bigSpread;
   const caution = !started && p && (keyHurt || bigGap);
   const reasons = [];
   if (keyHurt) reasons.push(valued ? "key player questionable" : "key player out or questionable");
@@ -374,27 +402,30 @@ function gameHTML(g) {
 
   if (!started && p && g.spread_home != null) {
     const e = p.margin + g.spread_home; // > 0 leans home
-    const inZ = Math.abs(e) >= sMin;
+    const inZ = Boolean(c && c.score >= confMin);   // Green Zone = confidence at or above your setting
     hot ||= inZ;
     const side = e > 0 ? g.home_abbr : g.away_abbr;
+    const none = Math.abs(e) < 0.05;
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span>
       <span class="num">${spreadText(g, -p.margin, true)}<span class="small">Model</span></span>
-      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>
+      ${none ? `<span class="num muted">No lean<span class="small">Model matches market</span></span>`
+        : `<span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${side} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean"}</span></span>`}
       ${track(-g.spread_home, p.margin, 10, inZ, caution)}
-      ${bestSpreadHTML(g, p, e > 0 ? "home" : "away")}`;
+      ${none ? "" : bestSpreadHTML(g, p, e > 0 ? "home" : "away")}`;
   } else {
     spreadRow = `<span class="num">${spreadText(g, g.spread_home)}${openS}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
 
   if (!started && p && g.total != null) {
+    // Totals never light up: they lost to closing lines in testing, so they're shown for reference only.
     const e = p.total - g.total;
-    const inZ = Math.abs(e) >= tMin;
-    hot ||= inZ;
+    const none = Math.abs(e) < 0.05;
     totalRow = `<span class="num">${line(g.total)}${openT}</span>
       <span class="num">${fmt(p.total)}<span class="small">Model</span></span>
-      <span class="num edge${inZ ? (caution ? " warn" : " in") : ""}">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">${inZ && caution ? "Check news" : "Lean · low confidence"}</span></span>
-      ${track(g.total, p.total, 12, inZ, caution)}
-      ${bestTotalHTML(g, p, e > 0 ? "over" : "under")}`;
+      ${none ? `<span class="num muted">No lean<span class="small">Model matches market</span></span>`
+        : `<span class="num muted">${e > 0 ? "Over" : "Under"} by ${fmt(Math.abs(e))}<span class="small">Reference only</span></span>`}
+      ${track(g.total, p.total, 12, false, false)}
+      ${none ? "" : bestTotalHTML(g, p, e > 0 ? "over" : "under")}`;
   } else {
     totalRow = `<span class="num">${line(g.total)}${openT}</span><span class="muted">–</span><span class="muted">–</span>`;
   }
@@ -422,6 +453,7 @@ function gameHTML(g) {
       <div class="time">${timeLabel(g.commence_time)}</div>
     </div>
     <div class="sub">${esc(sub)}</div>
+    ${started ? "" : meterHTML(c, confMin, caution)}
     ${caution && hot ? `<span class="flag">Check news: ${reasons.join(", ")}</span>` : ""}
     ${started ? "" : newsHTML(g)}
     ${injHTML}
@@ -469,6 +501,22 @@ function bestLine(g, side) {
 }
 
 // Schedule spots worth knowing (travel, time zones, altitude, road trips).
+// ---------- Confidence meter ----------
+function meterHTML(c, confMin, caution) {
+  if (!c) return "";
+  const go = c.score >= confMin;
+  const segs = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= c.score ? "on" : ""}"></i>`).join("");
+  const icon = (ok) => (ok === true ? "<b>✓</b>" : ok === false ? "✗" : "–");
+  return `<details class="meter${go ? (caution ? " caution" : " go") : ""}">
+    <summary aria-label="Confidence ${c.score} of 5, ${c.level}, on ${esc(c.team)}">
+      <span class="segs" aria-hidden="true">${segs}</span>
+      <span class="lvl">${c.level} · ${c.score}/5</span><span class="muted">on ${esc(c.team)}</span>
+      <span class="why">Why</span>
+    </summary>
+    <ul>${c.checks.map((x) => `<li class="${x.ok === true ? "ok" : ""}">${icon(x.ok)}<span>${esc(x.text)}</span></li>`).join("")}</ul>
+  </details>`;
+}
+
 // ---------- Injury news vs line movement ----------
 const STATUS = { out: "Out", doubtful: "Doubtful", questionable: "Questionable", none: "cleared to play" };
 function newsHTML(g) {
@@ -483,6 +531,7 @@ function newsHTML(g) {
     const worth = `worth about ${fmt(n.worth)} pts`;
     if (n.fresh) return `<div class="newsflag"><b>NEWS</b> · ${what}, ${worth}. No line captured since. Tap Capture odds now to see if books have adjusted.</div>`;
     if (n.unpriced) return `<div class="newsflag"><b>NEWS</b> · ${what}, ${worth}. The line moved ${fmt(Math.max(0, n.moved * Math.sign(n.expected)))} of an expected ${fmt(Math.abs(n.expected))}, so it may not be priced in yet.</div>`;
+    if (n.moved == null) return `<div class="newsflag priced">${what}. The first line saved for this game came after the news, so it should already reflect it.</div>`;
     return `<div class="newsflag priced">${what}. The line has moved ${fmt(Math.abs(n.moved))}, so it looks priced in.</div>`;
   }).join("");
 }
@@ -660,18 +709,22 @@ function grade(rows, sMin = Number($("spreadMin").value) || 0, tMin = Number($("
 }
 // Live picks: you'd have bet at the first saved line where the game reached the Green Zone.
 // Closing line value (CLV) = how much better that number was than the last line saved before tip-off.
-function liveGrade(rows, sMin = Number($("spreadMin").value) || 0, tMin = Number($("totalMin").value) || 0) {
+// Spreads: the bet is the first saved line where the game reached your confidence setting
+// (older lines saved before confidence existed fall back to the edge setting, unless strict).
+function liveGrade(rows, sMin = Number($("spreadMin").value) || 0, tMin = Number($("totalMin").value) || 0,
+                   cMin = Number($("confMin").value) || 3, strict = false) {
   const picks = [];
   for (const [date, away, home, snaps, ap, hp] of rows) {
     const close = snaps[snaps.length - 1];
     const done = ap != null && hp != null;
-    const bS = snaps.find((x) => x[1] != null && x[3] != null && x[3] + x[1] !== 0 && Math.abs(x[3] + x[1]) >= sMin);
+    const bS = snaps.find((x) => x[1] != null && x[3] != null && x[3] + x[1] !== 0 &&
+      (x[5] != null ? x[5] >= cMin : !strict && Math.abs(x[3] + x[1]) >= sMin));
     if (bS) {
       const [t, spread, , pm] = bS;
       const home_ = pm + spread > 0;
       const lineBet = home_ ? spread : -spread, lineClose = close[1] == null ? null : home_ ? close[1] : -close[1];
       const res = done ? hp - ap + spread : null;
-      picks.push({ date, away, home, ap, hp, kind: "spread", edge: Math.abs(pm + spread), t,
+      picks.push({ date, away, home, ap, hp, kind: "spread", edge: Math.abs(pm + spread), t, cf: bS[5],
         pick: `${home_ ? home : away} ${signed(lineBet)}`, model: home_ ? `${home} ${signedM(-pm)}` : `${away} ${signedM(pm)}`,
         closeText: lineClose == null ? null : signed(lineClose),
         clv: close !== bS && lineClose != null ? lineBet - lineClose : null,
@@ -741,18 +794,19 @@ function renderHistory() {
       : `<div class="empty"><p><strong>No replay data yet.</strong></p><p>Run the model once from the Actions tab on GitHub.</p></div>`;
   } else {
     const card = (title, color, r, th) => `<div class="card">
-      <h3><span class="key" style="background:var(${color})"></span>${title} <span class="muted">· edge ${line(th)}+</span></h3>
+      <h3><span class="key" style="background:var(${color})"></span>${title} <span class="muted">· ${esc(th)}</span></h3>
       <div class="big">${r.w}–${r.l}${r.pu ? `–${r.pu}` : ""}</div>
       <p><strong>${pctText(r.pct)}</strong> wins · <strong>${uText(r.u)}</strong> at -110</p>
       <p>52.4% breaks even.</p></div>`;
     body = (src.live ? clvHTML(picks) : "") +
-      `<div class="cards">${card("Spreads", "--s1", rs, sMin)}${card("Totals", "--s2", rt, tMin)}</div>
+      `<div class="cards">${card("Spreads", "--s1", rs, src.live ? `confidence ${$("confMin").value}+` : `edge ${line(sMin)}+`)}${card("Totals", "--s2", rt, `edge ${line(tMin)}+ · reference only`)}</div>
       ${chartHTML(sp, tp)}
+      ${src.live ? confTableHTML(src.rows) : ""}
       ${bucketHTML(src)}
       ${picksHTML(picks, src.live)}`;
   }
   const caveat = src.id === "live"
-    ? "Each pick is graded at the first saved line where the game reached the Green Zone (when you'd have bet), using the median line across books. Line value compares that number with the last line saved before tip-off."
+    ? "Spread picks are graded at the first saved line where the game reached your confidence setting (when you'd have bet), using the median line across books; lines saved before confidence existed use the spread edge setting instead. Line value compares that number with the last line saved before tip-off. Totals use the total edge setting and are reference only."
     : `Replay: the model's pre-game number for every game, trained only on earlier seasons, against ${esc(hist.data.replay?.source || "closing lines")}. Closing lines are the hardest version of the line to beat.${sport === "nba" ? " Injury adjustments use who actually sat, so the replay knows slightly more than the board did at the time." : ""}`;
   $("history").innerHTML = seg + body + `<p class="caveat">${caveat} Change the Green Zone numbers above to regrade.</p>`;
 
@@ -762,6 +816,22 @@ function renderHistory() {
   const more = $("morePicks");
   if (more) more.addEventListener("click", () => { hist.shown += 60; renderHistory(); });
   wireChart(sp, tp);
+}
+
+// Does higher confidence actually win more? Spread picks graded at the first line that reached each level.
+function confTableHTML(rows) {
+  const levels = [[1, "1+ any lean"], [2, "2+ Fair"], [3, "3+ Good"], [4, "4+ Strong"], [5, "5"]];
+  const body = levels.map(([L, label]) => {
+    const picks = liveGrade(rows, 0, Infinity, L, true).filter((p) => p.kind === "spread");
+    const r = record(picks.filter((p) => p.out !== "pending"));
+    const c = clvStats(picks);
+    return `<tr><td>${label}</td><td>${r.w}–${r.l}${r.pu ? `–${r.pu}` : ""}</td><td>${pctText(r.pct)}</td>
+      <td>${c ? `${c.avg >= 0 ? "+" : "−"}${fmt(Math.abs(c.avg), 2)}` : "–"}</td><td>${picks.length}</td></tr>`;
+  }).join("");
+  return `<div class="tbl"><h3>Spreads by confidence</h3><table>
+    <thead><tr><th>Confidence</th><th>Record</th><th>Win %</th><th>Line value</th><th>Picks</th></tr></thead>
+    <tbody>${body}</tbody></table>
+    <p class="caveat" style="margin-top:6px">If the meter works, win rate and line value should climb as confidence rises. Give it a few weeks before trusting any row.</p></div>`;
 }
 
 function clvHTML(picks) {

@@ -4,7 +4,7 @@ import { getJSON, redis, pipeline, sportFrom, k } from "./_lib.js";
 //   replay: the model replayed against closing lines (computed by the model scripts).
 //           Row: [date, away, home, spread (home line), total, model margin, model total, away pts, home pts]
 //   live:   every saved line for each game that has started, plus the final score once it's in.
-//           Row: [date, away, home, [[time, spread, total, model margin, model total], ...], away pts|null, home pts|null]
+//           Row: [date, away, home, [[time, spread, total, model margin, model total, confidence], ...], away pts|null, home pts|null]
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   try {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       const m = metas[i] ? JSON.parse(metas[i]) : null;
       const s = (snaps[i] || []).map((x) => JSON.parse(x)).filter((x) => x.t)
         .sort((a, b) => Date.parse(a.t) - Date.parse(b.t))
-        .map((x) => [x.t, x.spread, x.total, x.pm, x.pt]);
+        .map((x) => [x.t, x.spread, x.total, x.pm, x.pt, x.cf ?? null]);
       if (!m || !s.length || Date.parse(m.commence_time) > Date.now()) return; // not played yet
       const day = etDay(m.commence_time);
       const r = (results || []).find((x) => x[1] === m.away && x[2] === m.home && dayDiff(x[0], day) <= 1);

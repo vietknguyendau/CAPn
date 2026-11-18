@@ -158,21 +158,86 @@ export async function captureOdds(sport, model, inj = null) {
 
   await setJSON(k(sport, "odds:latest"), { captured_at: t, remaining, games });
 
-  // Save a snapshot for every game that hasn't tipped yet (pre-game lines only).
+  // Save a snapshot for every game that hasn't tipped yet (pre-game lines only),
+  // with the confidence score at that moment so History can grade picks by confidence.
   const now = Date.now();
+  const upcoming = games.filter((g) => Date.parse(g.commence_time) > now);
+  const prev = await pipeline(upcoming.map((g) => ["LRANGE", `snaps:${g.id}`, 0, -1]));
+  const changes = await getInjuryChanges(sport);
   const cmds = [];
-  for (const g of games) {
-    if (Date.parse(g.commence_time) <= now) continue;
+  upcoming.forEach((g, i) => {
     const injuries = inj ? { home: teamInjuries(sport, inj, model, g.home_abbr), away: teamInjuries(sport, inj, model, g.away_abbr) } : null;
     const p = model ? predict(sport, model, g, injuries) : null;
     const snap = { t, spread: g.spread_home, total: g.total, pm: p ? +p.margin.toFixed(2) : null, pt: p ? +p.total.toFixed(2) : null };
+    const snaps = [...(prev[i] || []).map((x) => JSON.parse(x)), snap];
+    const news = model ? newsAlerts(sport, model, g, changes, snaps) : [];
+    const c = confidence(sport, g, p, injuries, news, snaps[0]?.spread ?? null);
+    if (c) { snap.cf = c.score; snap.side = c.side; }
     cmds.push(["RPUSH", `snaps:${g.id}`, JSON.stringify(snap)]);
     cmds.push(["SET", `game:${g.id}`, JSON.stringify({ commence_time: g.commence_time, home: g.home_abbr, away: g.away_abbr })]);
     cmds.push(["SADD", k(sport, "games:all"), g.id]);
-  }
+  });
   await pipeline(cmds);
 
   return { captured_at: t, remaining, games };
+}
+
+// ---------- Confidence (0-5) ----------
+// A checklist, not a probability. Each check is something that tends to separate real edges from noise.
+// The History tab tracks how picks at each level actually do, which is the only way to know if it works.
+const SWEET = { nba: [2.5, 6], nfl: [2, 4] };   // edge (points) worth acting on; bigger usually means the model is missing something
+
+export function confidence(sport, g, pred, injuries, news, openSpread) {
+  if (!pred || g.spread_home == null || pred.margin == null) return null;
+  const e = pred.margin + g.spread_home;               // > 0 means the model likes the home side
+  if (Math.abs(e) < 0.5) return null;                  // no real lean
+  const side = e > 0 ? "home" : "away";
+  const team = side === "home" ? g.home_abbr : g.away_abbr;
+  const [lo, hi] = SWEET[sport.id] || SWEET.nba;
+  const checks = [];
+  let score = 0;
+  const add = (pts, ok, text) => { score += pts; checks.push({ ok, text }); };
+  const r1 = (x) => Math.round(x * 10) / 10;
+
+  // 1. Edge size
+  const ae = Math.abs(e);
+  if (ae >= hi) add(-1, false, `Edge of ${r1(ae)} is so big the model is probably missing something`);
+  else if (ae >= lo) add(1, true, `Edge of ${r1(ae)} on ${team} is in the useful range (${lo} to ${hi})`);
+  else add(0, false, `Edge of ${r1(ae)} is small (under ${lo})`);
+
+  // 2. Line movement since the board first saw this game
+  if (openSpread == null || openSpread === g.spread_home) add(0, null, "No line movement yet");
+  else {
+    const toward = side === "home" ? openSpread - g.spread_home : g.spread_home - openSpread;
+    if (toward >= 0.5) add(1, true, `Line moved ${r1(toward)} toward ${team} since the first saved line`);
+    else if (toward <= -0.5) add(-1, false, `Line moved ${r1(-toward)} away from ${team} since the first saved line`);
+    else add(0, null, "Line has barely moved");
+  }
+
+  // 3. Injury news the line hasn't caught up to
+  const fresh = (news || []).filter((n) => n.unpriced && n.expected != null);
+  const helps = fresh.filter((n) => (side === "home" ? n.expected < 0 : n.expected > 0));
+  const hurts = fresh.filter((n) => (side === "home" ? n.expected > 0 : n.expected < 0));
+  if (helps.length) add(1, true, `Fresh news favors ${team} and isn't priced in yet`);
+  else if (hurts.length) add(-1, false, `Fresh news goes against ${team} and isn't priced in yet`);
+  else add(0, null, "No unpriced injury news");
+
+  // 4. A better number than the market at some book
+  const bookLines = (g.books || []).map((b) => (side === "home" ? b.hs : b.as)).filter((x) => x != null);
+  const market = side === "home" ? g.spread_home : -g.spread_home;
+  const best = bookLines.length ? Math.max(...bookLines) : null;
+  if (best != null && best - market >= 0.5) add(1, true, `A book has ${team} ${best > 0 ? "+" : ""}${best}, ${r1(best - market)} better than the market`);
+  else add(0, false, "No book beats the market number");
+
+  // 5. Nobody important still uncertain
+  const all = [...(injuries?.home || []), ...(injuries?.away || [])];
+  const uncertain = all.filter((x) => x.key && !x.longTerm && (x.level === "questionable" || x.level === "doubtful"));
+  if (uncertain.length) add(0, false, `${uncertain[0].name} is ${uncertain[0].level}; wait for news`);
+  else add(1, true, "No key players questionable");
+
+  score = Math.max(0, Math.min(5, score));
+  const level = score >= 4 ? "Strong" : score === 3 ? "Good" : score === 2 ? "Fair" : "Low";
+  return { score, level, side, team, checks };
 }
 
 // ---------- Model ----------

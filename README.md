@@ -59,6 +59,19 @@ Visitors now have to sign in to your Vercel account. The GitHub jobs send the by
 - `/api/capture` only runs for requests carrying `MODEL_SECRET` (or `CRON_SECRET`), and never more than once every 10 minutes.
 - To bring back automatic captures when the page opens, set `STALE_MINUTES` (for example `60`) in Vercel and redeploy.
 
+## Confidence meter (Green Zone)
+Each game's spread lean gets a 0-5 confidence score, shown as a meter (tap **Why** for the checks):
+1. Edge in a useful range (NBA 2.5-6, NFL 2-4): +1. Bigger than that: -1, since the model is probably missing something.
+2. Line moved 0.5+ toward the pick since the board's first saved line: +1. Moved against it: -1.
+3. Injury news the line hasn't caught up to, favoring the pick: +1. Against it: -1.
+4. Some book has a number 0.5+ better than the market: +1.
+5. No key player questionable or doubtful: +1.
+
+A game is green when it reaches the confidence level you choose (default 3+). Totals never go green; they're reference only.
+The score is saved with every captured line, and History → Board picks shows the record and line value at each level,
+so you can see whether higher confidence actually wins more. Replays can't score confidence (no past line movement),
+so they still use the edge settings, which appear in the History view.
+
 ## Finding an edge
 - **Closing line value (History → Board picks):** each pick is graded at the first saved line where it reached the Green Zone, and compared with the last line saved before tip-off. Consistently positive line value over a few hundred picks is the best sign of a real edge.
 - **Injury news alerts:** when a valued player's status changes (ESPN), the board compares how far the line has moved since with what the player is worth. Blue NEWS notes flag news the line may not reflect yet. Changes are only noticed when the site or a scheduled capture checks injuries (at most every 20 minutes).

@@ -43,6 +43,13 @@ echo.
 set /p SECRET=Paste your MODEL_SECRET from Vercel and press Enter: 
 >model_secret.txt echo %SECRET%
 :havesecret
+if exist vercel_bypass.txt goto havebypass
+echo.
+echo If your site uses Vercel's login lock, paste its Protection Bypass secret.
+set /p BYPASS=Otherwise just press Enter: 
+>vercel_bypass.txt echo %BYPASS%
+:havebypass
+set /p VERCEL_BYPASS=<vercel_bypass.txt
 set /p BOARD_URL=<board_url.txt
 set /p MODEL_SECRET=<model_secret.txt
 
