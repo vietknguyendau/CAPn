@@ -41,7 +41,7 @@ export function ExerciseActions({ index, onClose }: { index: number; onClose: ()
           <button aria-label="Close" onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-haze active:bg-rim"><X size={20} /></button>
         </div>
 
-        {!swapping && <p className="-mt-2 mb-3 text-xs text-haze">Tip: press and hold any name in the bar, then drag it to a new spot.</p>}
+        {!swapping && <p className="-mt-2 mb-3 text-xs text-haze">Tip: drag the ⠿ grip on any name in the bar to move it.</p>}
         {swapping ? (
           <SwapPicker current={ex.exerciseId} onPick={(id) => {
             if (ex.sets.length && !confirm(`Swap to ${EXERCISES[id].name}? The ${ex.sets.length} set${ex.sets.length > 1 ? 's' : ''} logged for ${name} will be cleared.`)) return;

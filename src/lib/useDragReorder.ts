@@ -13,7 +13,7 @@ const EDGE = 48;        // px from the row's edge that starts auto-scrolling
  */
 export function useDragReorder(row: React.RefObject<HTMLDivElement | null>, enabled: boolean, onMove: (from: number, to: number) => void) {
   const [drag, setDrag] = useState<DragState | null>(null);
-  const st = useRef<{ from: number; startX: number; startContent: number; lefts: number[]; widths: number[]; active: boolean; x: number; timer?: number; raf?: number; to: number; touch: boolean } | null>(null);
+  const st = useRef<{ from: number; startX: number; startContent: number; lefts: number[]; widths: number[]; active: boolean; x: number; timer?: number; raf?: number; to: number; touch: boolean; viaPointer?: boolean } | null>(null);
   const suppressClick = useRef(false);
   const onMoveRef = useRef(onMove); onMoveRef.current = onMove;
 
@@ -50,18 +50,21 @@ export function useDragReorder(row: React.RefObject<HTMLDivElement | null>, enab
     if (!s) return;
     clearTimeout(s.timer); if (s.raf) cancelAnimationFrame(s.raf);
     if (s.active) {
-      suppressClick.current = true; setTimeout(() => { suppressClick.current = false; }, 50);
+      suppressClick.current = true; // cleared when the next touch/press starts, so a late click never opens the menu
+      setTimeout(() => { suppressClick.current = false; }, 600);
       if (s.to !== s.from) onMoveRef.current(s.from, s.to);
     }
     setDrag(null);
   }, []);
 
-  const begin = useCallback((target: EventTarget | null, clientX: number, touch: boolean) => {
+  const begin = useCallback((target: EventTarget | null, clientX: number, touch: boolean, handle = false) => {
     const r = row.current; if (!enabled || !r) return;
     const el = (target as HTMLElement | null)?.closest?.('[data-idx]') as HTMLElement | null; if (!el) return;
+    if (!handle) suppressClick.current = false;
     const items = Array.from(r.querySelectorAll<HTMLElement>('[data-idx]'));
     st.current = { from: Number(el.dataset.idx), startX: clientX, startContent: contentX(clientX), x: clientX, active: false, to: Number(el.dataset.idx), touch,
       lefts: items.map((n) => n.offsetLeft), widths: items.map((n) => n.offsetWidth) };
+    if (handle) { st.current.viaPointer = true; suppressClick.current = true; activate(); return; } // grip: drag right away
     if (touch) st.current.timer = window.setTimeout(activate, HOLD_MS);
   }, [enabled, activate]);
 
@@ -81,24 +84,31 @@ export function useDragReorder(row: React.RefObject<HTMLDivElement | null>, enab
 
   useEffect(() => {
     const r = row.current; if (!r) return;
-    const ts = (e: TouchEvent) => begin(e.target, e.touches[0].clientX, true);
-    const tm = (e: TouchEvent) => move(e.touches[0].clientX, e);
-    const te = () => end();
-    const pd = (e: PointerEvent) => { if (e.pointerType === 'mouse' && e.button === 0) begin(e.target, e.clientX, false); };
-    const pm = (e: PointerEvent) => { if (e.pointerType === 'mouse') move(e.clientX, e); };
-    const pu = (e: PointerEvent) => { if (e.pointerType === 'mouse') end(); };
+    const onHandle = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('[data-handle]');
+    const ts = (e: TouchEvent) => { if (!onHandle(e.target)) begin(e.target, e.touches[0].clientX, true); };
+    const tm = (e: TouchEvent) => { if (!st.current?.viaPointer) move(e.touches[0].clientX, e); };
+    const te = () => { if (!st.current?.viaPointer) end(); };
+    const pd = (e: PointerEvent) => {
+      if (onHandle(e.target) && e.button === 0) { // grip: any pointer, starts immediately
+        try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
+        e.preventDefault(); begin(e.target, e.clientX, e.pointerType !== 'mouse', true); return;
+      }
+      if (e.pointerType === 'mouse' && e.button === 0) begin(e.target, e.clientX, false);
+    };
+    const pm = (e: PointerEvent) => { if (e.pointerType === 'mouse' || st.current?.viaPointer) move(e.clientX, e); };
+    const pu = (e: PointerEvent) => { if (e.pointerType === 'mouse' || st.current?.viaPointer) end(); };
     const cm = (e: Event) => { if (st.current) e.preventDefault(); }; // no long-press menu on Android
     r.addEventListener('touchstart', ts, { passive: true });
     r.addEventListener('touchmove', tm, { passive: false });
     r.addEventListener('touchend', te); r.addEventListener('touchcancel', te);
     r.addEventListener('pointerdown', pd);
-    window.addEventListener('pointermove', pm); window.addEventListener('pointerup', pu);
+    window.addEventListener('pointermove', pm); window.addEventListener('pointerup', pu); window.addEventListener('pointercancel', pu);
     r.addEventListener('contextmenu', cm);
     return () => {
       r.removeEventListener('touchstart', ts); r.removeEventListener('touchmove', tm);
       r.removeEventListener('touchend', te); r.removeEventListener('touchcancel', te);
       r.removeEventListener('pointerdown', pd);
-      window.removeEventListener('pointermove', pm); window.removeEventListener('pointerup', pu);
+      window.removeEventListener('pointermove', pm); window.removeEventListener('pointerup', pu); window.removeEventListener('pointercancel', pu);
       r.removeEventListener('contextmenu', cm);
     };
   }); // re-attach every render so listeners always sit on the live row element

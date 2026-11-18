@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Check, ChevronLeft, ChevronRight, ListOrdered, Pause, Pencil, Play, RotateCcw, Shuffle, SkipForward, Timer, Trash2, Undo2, X } from 'lucide-react';
+import { BookOpen, Check, ChevronLeft, GripVertical, ChevronRight, ListOrdered, Pause, Pencil, Play, RotateCcw, Shuffle, SkipForward, Timer, Trash2, Undo2, X } from 'lucide-react';
 import { useStore } from '../store';
 import type { Difficulty, SetLog, WeightUnit } from '../types';
 import { EXERCISES, unitLabel } from '../data/exercises';
@@ -85,7 +85,7 @@ function ExerciseStrip() {
   const done = (i: number) => { const e = s.workout.exercises[i]; return !e.skipped && (e.sets.length > 0 || e.cardio?.completed || e.interval?.completed); };
   return (
     <div ref={row} className={cx('relative -mx-4 mt-2 flex select-none gap-2 overflow-x-auto px-4 pb-1 [-webkit-touch-callout:none]', drag && 'cursor-grabbing')}
-      role="group" aria-label="Exercises in this workout. Tap one for options, or press and hold to drag it to a new spot">
+      role="group" aria-label="Exercises in this workout. Tap one for options, or drag the grip to move it">
       {s.workout.exercises.map((e, i) => {
         const isCur = i === s.index && s.phase === 'exercise';
         const name = e.interval ? e.interval.name : EXERCISES[e.exerciseId]?.name ?? 'Exercise';
@@ -97,9 +97,11 @@ function ExerciseStrip() {
             onClick={() => { if (!wasDrag()) setMenu(i); }} aria-current={isCur ? 'step' : undefined} aria-haspopup="dialog" aria-label={`${name}, ${status}. Options`}
             style={drag ? { transform: `translateX(${shiftFor(i)}px)${drag.from === i ? ' scale(1.06)' : ''}`, transition: drag.from === i ? 'none' : 'transform 150ms ease', zIndex: drag.from === i ? 10 : undefined, position: 'relative',
               ...(drag.from === i ? { background: 'linear-gradient(rgba(244,183,64,.15), rgba(244,183,64,.15)), #172438' } : {}) } : undefined}
-            className={cx('flex min-h-[52px] max-w-[11rem] shrink-0 items-center gap-2 rounded-xl border px-3 py-1.5 text-left disabled:opacity-60',
+            className={cx('flex min-h-[52px] max-w-[12.5rem] shrink-0 items-center gap-1.5 rounded-xl border py-1.5 pl-0.5 pr-3 text-left disabled:opacity-60',
               drag?.from === i && 'border-sun bg-deck shadow-xl shadow-black/50',
               isCur ? 'border-sun bg-sun/15' : e.skipped ? 'border-flare/50' : done(i) ? 'border-tide/50 bg-tide/10' : 'border-rim')}>
+            <span data-handle aria-hidden className={cx('-my-1.5 grid w-7 shrink-0 cursor-grab place-items-center self-stretch rounded-l-xl text-haze [touch-action:none] active:cursor-grabbing',
+              s.phase === 'pre' && 'invisible')} title="Drag to move"><GripVertical size={16} /></span>
             <span className={cx('grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold',
               done(i) ? 'bg-tide text-ink' : e.skipped ? 'bg-flare/25 text-flare' : isCur ? 'bg-sun text-ink' : 'bg-rim text-haze')}>
               {done(i) ? <Check size={14} /> : e.skipped ? <SkipForward size={12} /> : i + 1}
