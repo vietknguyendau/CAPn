@@ -6,7 +6,7 @@ import type { Difficulty, SetLog, WeightUnit } from '../types';
 import { EXERCISES, unitLabel } from '../data/exercises';
 import { fmtRec, lastLogFor, lighter, nextSetTip, recommend } from '../lib/progression';
 import { liveFatigue, setsBeforeNow, typicalSetsBefore, usualPhrase } from '../lib/fatigue';
-import { backfillStamp, goToExercise, newCheckIn, startSession } from '../lib/session';
+import { backfillStamp, goToExercise, moveExercise, newCheckIn, startSession } from '../lib/session';
 import { SessionOverview } from '../components/SessionOverview';
 import { Scale } from '../components/ui';
 import { fmtLong, toISO, uid } from '../lib/date';
@@ -14,6 +14,7 @@ import { CheckInForm } from '../components/CheckInForm';
 import { ExercisePhotos, ExerciseSteps } from '../components/ExerciseInfo';
 import { IntervalStep } from '../components/IntervalStep';
 import { ExerciseActions } from '../components/ExerciseActions';
+import { useDragReorder } from '../lib/useDragReorder';
 import { HoldTimer } from '../components/HoldTimer';
 import { Badge, Btn, Chips, Panel, Stepper, cx } from '../components/ui';
 import { summarizeWorkout } from '../lib/coach';
@@ -76,13 +77,15 @@ function ExerciseStrip() {
   const current = useRef<HTMLButtonElement>(null);
   const row = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<number | null>(null);
+  const { drag, shiftFor, wasDrag } = useDragReorder(row, s.phase !== 'pre', (from, to) => update((d) => moveExercise(d, from, to)));
   useEffect(() => { // center the current exercise by scrolling the row sideways only, never the page
     const el = current.current, r = row.current;
     if (el && r) r.scrollTo({ left: el.offsetLeft - r.clientWidth / 2 + el.clientWidth / 2, behavior: 'smooth' });
   }, [s.index, s.phase]);
   const done = (i: number) => { const e = s.workout.exercises[i]; return !e.skipped && (e.sets.length > 0 || e.cardio?.completed || e.interval?.completed); };
   return (
-    <div ref={row} className="relative -mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pb-1" role="group" aria-label="Exercises in this workout. Tap one for options">
+    <div ref={row} className={cx('relative -mx-4 mt-2 flex select-none gap-2 overflow-x-auto px-4 pb-1 [-webkit-touch-callout:none]', drag && 'cursor-grabbing')}
+      role="group" aria-label="Exercises in this workout. Tap one for options, or press and hold to drag it to a new spot">
       {s.workout.exercises.map((e, i) => {
         const isCur = i === s.index && s.phase === 'exercise';
         const name = e.interval ? e.interval.name : EXERCISES[e.exerciseId]?.name ?? 'Exercise';
@@ -90,9 +93,12 @@ function ExerciseStrip() {
         const sets = e.sets.length, target = e.targetSets ?? EXERCISES[e.exerciseId]?.targetSets ?? 0;
         const status = e.skipped ? 'Skipped' : e.interval?.completed || e.cardio?.completed ? 'Done' : sets ? `${sets}/${target} sets` : isCur ? 'Now' : 'Up next';
         return (
-          <button key={e.id} ref={isCur ? current : undefined} disabled={s.phase === 'pre'}
-            onClick={() => setMenu(i)} aria-current={isCur ? 'step' : undefined} aria-haspopup="dialog" aria-label={`${name}, ${status}. Options`}
+          <button key={e.id} data-idx={i} ref={isCur ? current : undefined} disabled={s.phase === 'pre'}
+            onClick={() => { if (!wasDrag()) setMenu(i); }} aria-current={isCur ? 'step' : undefined} aria-haspopup="dialog" aria-label={`${name}, ${status}. Options`}
+            style={drag ? { transform: `translateX(${shiftFor(i)}px)${drag.from === i ? ' scale(1.06)' : ''}`, transition: drag.from === i ? 'none' : 'transform 150ms ease', zIndex: drag.from === i ? 10 : undefined, position: 'relative',
+              ...(drag.from === i ? { background: 'linear-gradient(rgba(244,183,64,.15), rgba(244,183,64,.15)), #172438' } : {}) } : undefined}
             className={cx('flex min-h-[52px] max-w-[11rem] shrink-0 items-center gap-2 rounded-xl border px-3 py-1.5 text-left disabled:opacity-60',
+              drag?.from === i && 'border-sun bg-deck shadow-xl shadow-black/50',
               isCur ? 'border-sun bg-sun/15' : e.skipped ? 'border-flare/50' : done(i) ? 'border-tide/50 bg-tide/10' : 'border-rim')}>
             <span className={cx('grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold',
               done(i) ? 'bg-tide text-ink' : e.skipped ? 'bg-flare/25 text-flare' : isCur ? 'bg-sun text-ink' : 'bg-rim text-haze')}>
